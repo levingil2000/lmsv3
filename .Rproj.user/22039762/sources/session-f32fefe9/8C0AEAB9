@@ -1,0 +1,26 @@
+{
+    "id": "8C0AEAB9",
+    "path": "~/Basic R/lmsv3/R/db_helpers.R",
+    "project_path": "R/db_helpers.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1754627889377.0,
+    "source_on_save": false,
+    "relative_order": 2,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "231,1",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1754628158,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1754628158673,
+    "read_only": false,
+    "read_only_alternatives": []
+}

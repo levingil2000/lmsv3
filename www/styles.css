@@ -1,0 +1,159 @@
+/* Basic styling for the Project ARAL Management System */
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: #f8f9fa;
+}
+
+.navbar-brand {
+  font-weight: bold;
+}
+
+.value-box {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 20px;
+  border-radius: 10px;
+  text-align: center;
+  margin-bottom: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s;
+}
+
+.value-box:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+}
+
+.value-box h3 {
+  margin: 0;
+  font-size: 2.5rem;
+  font-weight: bold;
+}
+
+.value-box p {
+  margin: 5px 0 0 0;
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+.well {
+  background-color: white;
+  border: 1px solid #e3e3e3;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.btn-primary {
+  background-color: #3498db;
+  border-color: #3498db;
+}
+
+.btn-primary:hover {
+  background-color: #2980b9;
+  border-color: #2980b9;
+}
+
+.btn-danger {
+  background-color: #e74c3c;
+  border-color: #e74c3c;
+}
+
+.btn-danger:hover {
+  background-color: #c0392b;
+  border-color: #c0392b;
+}
+
+.dataTables_wrapper {
+  margin-top: 10px;
+}
+
+.modal-content {
+  border-radius: 8px;
+}
+
+.modal-header {
+  background-color: #f8f9fa;
+  border-bottom: 1px solid #e3e3e3;
+}
+
+.form-control {
+  border-radius: 4px;
+  border: 1px solid #ddd;
+}
+
+.form-control:focus {
+  border-color: #3498db;
+  box-shadow: 0 0 0 0.2rem rgba(52, 152, 219, 0.25);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #2c3e50;
+}
+
+.nav-tabs > li > a {
+  color: #2c3e50;
+}
+
+.nav-tabs > li.active > a {
+  background-color: #3498db;
+  border-color: #3498db;
+  color: white;
+}
+
+.alert {
+  border-radius: 6px;
+}
+
+.progress {
+  border-radius: 4px;
+}
+
+/* Custom table styling */
+.dataTable thead th {
+  background-color: #34495e;
+  color: white;
+  border: none;
+}
+
+.dataTable tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .value-box {
+    margin-bottom: 15px;
+  }
+  
+  .value-box h3 {
+    font-size: 2rem;
+  }
+  
+  .col-sm-12 {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+}
+
+/* Loading spinner customization */
+.loading-content {
+  text-align: center;
+  padding: 20px;
+}
+
+/* Status indicators */
+.status-active {
+  color: #27ae60;
+  font-weight: bold;
+}
+
+.status-inactive {
+  color: #e74c3c;
+  font-weight: bold;
+}
+
+.status-pending {
+  color: #f39c12;
+  font-weight: bold;
+}

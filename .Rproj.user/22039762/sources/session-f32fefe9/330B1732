@@ -1,0 +1,26 @@
+{
+    "id": "330B1732",
+    "path": "~/Basic R/lmsv3/modules/facilities_mod.R",
+    "project_path": "modules/facilities_mod.R",
+    "type": "r_source",
+    "hash": "0",
+    "contents": "",
+    "dirty": false,
+    "created": 1754628018125.0,
+    "source_on_save": false,
+    "relative_order": 6,
+    "properties": {
+        "source_window_id": "",
+        "Source": "Source",
+        "cursorPosition": "96,0",
+        "scrollLine": "0"
+    },
+    "folds": "",
+    "lastKnownWriteTime": 1754628022,
+    "encoding": "UTF-8",
+    "collab_server": "",
+    "source_window": "",
+    "last_content_update": 1754628022532,
+    "read_only": false,
+    "read_only_alternatives": []
+}

@@ -1,0 +1,37 @@
+library(ggplot2)
+library(ggimage)
+library(MASS)
+library(dplyr)
+library(ggthemr)
+
+cats_data <- cats
+
+font_add_google(name = "Comic Neue", family = "comic")
+showtext_auto()
+
+
+cats_data$image <- ifelse(cats_data$Sex == "F",
+                   "C:/Users/Owner/Downloads/compressed-images/cat1.png",
+                   "C:/Users/Owner/Downloads/compressed-images/cat2.png")
+
+centroids <- cats_data %>%
+  group_by(Sex) %>%
+  summarize(
+    Bwt = mean(Bwt),
+    Hwt = mean(Hwt)
+  )
+ggplot(cats_data, aes(Bwt, Hwt)) +
+  # Add shaded ellipses by Sex
+  stat_ellipse(aes(fill = Sex), geom = "polygon", alpha = 0.2, color = NA) +
+  
+  # Add cat icons
+  geom_image(aes(image = image), size = 0.05, alpha = 0.5,
+             position = position_jitter(width = 0.3, height = 0.3)) +
+  
+  # Labels and theme
+  ggtitle("Catterplot: How big is your cat's heart?") +
+  xlab("Body Weight in kg") +
+  ylab("Heart Weight in g") +
+  labs(caption = "Source: MASS::cats dataset")+
+  theme_gray()+
+  theme(text = element_text(family = "comic"),)
