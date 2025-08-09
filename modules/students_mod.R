@@ -1,4 +1,6 @@
 # Students Module
+library(readr)
+library(readxl)
 
 students_ui <- function(id) {
   ns <- NS(id)
@@ -21,7 +23,18 @@ students_ui <- function(id) {
                  column(12,
                         withSpinner(DT::dataTableOutput(ns("students_table")))
                  )
-               )
+               ),
+               fluidRow(
+                 column(6,
+                        actionButton(ns("add_student"), "Add New Student", 
+                                     class = "btn-primary", style = "margin-bottom: 15px;")
+                 ),
+                 column(6,
+                        fileInput(ns("upload_file"), "Upload Students (CSV/Excel)", 
+                                  accept = c(".csv", ".xls", ".xlsx")),
+                        actionButton(ns("process_upload"), "Append to Database", class = "btn-success")
+                 )
+               ),
       ),
       
       # Student Dashboard Tab
@@ -149,6 +162,89 @@ students_server <- function(id, con) {
       updateSelectInput(session, "filter_student",
                         choices = c("All" = "", students))
     })
+    uploaded_data <- reactiveVal(NULL)
+    
+    # Read and preview uploaded file
+    observeEvent(input$upload_file, {
+      req(input$upload_file)
+      
+      ext <- tools::file_ext(input$upload_file$name)
+      
+      tryCatch({
+        if (ext == "csv") {
+          df <- read_csv(input$upload_file$datapath, show_col_types = FALSE)
+        } else if (ext %in% c("xls", "xlsx")) {
+          df <- read_excel(input$upload_file$datapath)
+        } else {
+          showNotification("Unsupported file type.", type = "error")
+          return(NULL)
+        }
+        
+        # Define all DB columns we expect
+        required_cols <- c("student_name", "grade_level", "section", "LRN", 
+                           "address", "narrative", "parent_name", "parent_contact", "consent_given")
+        
+        # Add missing columns as NA
+        for (col in required_cols) {
+          if (!col %in% names(df)) {
+            df[[col]] <- NA
+          }
+        }
+        
+        # Ensure correct column order
+        df <- df[, required_cols]
+        
+        # Ensure consent_given is logical
+        if (!is.logical(df$consent_given)) {
+          df$consent_given <- as.logical(df$consent_given)
+        }
+        
+        uploaded_data(df)
+        showNotification("File uploaded successfully. Review preview before saving.", type = "message")
+        
+      }, error = function(e) {
+        showNotification(paste("Error reading file:", e$message), type = "error")
+      })
+    })
+    
+    # Append data while skipping duplicates
+    observeEvent(input$process_upload, {
+      req(uploaded_data())
+      
+      df <- uploaded_data()
+      
+      # Get existing LRNs
+      existing_lrns <- dbGetQuery(con, "SELECT LRN FROM students_registry")$LRN
+      
+      # Filter out duplicates
+      new_df <- df[!df$LRN %in% existing_lrns | is.na(df$LRN), ]
+      skipped_count <- nrow(df) - nrow(new_df)
+      
+      if (nrow(new_df) == 0) {
+        showNotification("All records are duplicates or missing LRN. No new students added.", type = "warning")
+        return()
+      }
+      
+      # Insert each row
+      success_count <- 0
+      for (i in 1:nrow(new_df)) {
+        result <- insert_data(con, "students_registry", new_df[i, ])
+        if (result$success) {
+          success_count <- success_count + 1
+        }
+      }
+      
+      showNotification(
+        paste0("Upload complete: ", success_count, " added, ", skipped_count, " skipped."),
+        type = "message"
+      )
+      
+      # Refresh table
+      values$refresh <- values$refresh + 1
+      uploaded_data(NULL)
+    })
+    
+    
     
     # Students table
     output$students_table <- DT::renderDataTable({
