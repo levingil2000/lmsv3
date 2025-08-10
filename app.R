@@ -17,10 +17,11 @@ source("modules/teachers_mod.R")
 source("modules/facilities_mod.R")
 source("modules/partners_mod.R")
 source("modules/sessions_mod.R")
-source("modules/assessment_tracker.R") #dashboard and drill down on the assessment results
+source("modules/enrollment_mod.R")
 source("R/session_student_teacher_stitch.R") #helper functions to stitch sessions, teachers and students
 source("R/db_helpers.R")
 source("R/report_helpers.R")
+
 
 # 2. UI: Define the navigation layout
 ui <- navbarPage(
@@ -39,7 +40,7 @@ ui <- navbarPage(
   tabPanel("Facilities", facilities_ui("facilities")),
   tabPanel("Partners", partners_ui("partners")),
   tabPanel("Sessions", sessions_ui("sessions")),
-  tabPanel("Assessment Dashboard", assessment_tracker_ui("assessments"))
+  tabPanel("Student Enrollment", student_enrollment_ui("student_enrollment") )
 )
 
 # 3. Server: Call the server logic for each module
@@ -58,7 +59,7 @@ server <- function(input, output, session) {
   facilities_server("facilities", con)
   partners_server("partners", con)
   sessions_server("sessions", con)
-  assessment_tracker_server("assessments", con)
+  student_enrollment_server("student_enrollment", con)
 }
 
 # 4. Run the app

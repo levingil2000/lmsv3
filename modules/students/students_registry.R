@@ -12,7 +12,7 @@ students_registry_ui <- function(id) {
     
     fluidRow(
       column(12,
-             withSpinner(DT::dataTableOutput(ns("students_table")))
+             withSpinner(DT::dataTableOutput(ns("full_students_registry")))
       )
     ),
     
@@ -44,9 +44,9 @@ students_registry_server <- function(id, con, shared_values) {
     )
     
     # Students table
-    output$students_table <- DT::renderDataTable({
-      req(shared_values$students_data)
-      render_students_table(shared_values$students_data)
+    output$full_students_registry <- DT::renderDataTable({
+      req(shared_values$full_students_registry)
+      render_students_table(shared_values$full_students_registry)
     })
     
     # File upload handling

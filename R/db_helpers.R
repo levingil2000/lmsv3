@@ -1,6 +1,6 @@
 # Database Helper Functions
 
-source("R/initialize_sample_data.R")
+#source("R/initialize_sample_data.R")
 
 #' Connect to SQLite database
 db_connect <- function(db_path) {
@@ -10,7 +10,7 @@ db_connect <- function(db_path) {
   create_tables(con)
   
   # Initialize sample data if tables are empty
-  check_and_initialize_data(con)
+  #check_and_initialize_data(con)
   
   return(con)
 }
@@ -129,7 +129,128 @@ create_tables <- function(con) {
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     )
   ")
+  
+  ##Full student registry table
+  dbExecute(con, 
+    "CREATE TABLE IF NOT EXISTS full_student_registry (
+    student_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    LRN TEXT,
+    student_name TEXT,
+    grade_level INTEGER,
+    RMA_Content_Number_Expression_per REAL,
+    RMA_Content_Data_per REAL,
+    RMA_Content_Coordinates_per REAL,
+    RMA_Content_Triangles_per REAL,
+    RMA_Content_Variables_per REAL,
+    RMA_Content_Equations_and_Graphs_per REAL,
+    RMA_Content_Circles_per REAL,
+    RMA_Cognitive_Knowing_per REAL,
+    RMA_Cognitive_Interpreting_per REAL,
+    RMA_Cognitive_Applying_per REAL,
+    RMA_Cognitive_Reasoning_per REAL,
+    Total_score_per REAL,
+    RMA_before_math_proficiency TEXT,
+    sex TEXT,
+    section TEXT,
+    
+    -- placeholders for future data
+    before_reading_proficiency TEXT,
+    testq1math INTEGER,
+    testq2math INTEGER,
+    testq3math INTEGER,
+    testq4math INTEGER,
+    testq1sci INTEGER,
+    testq2sci INTEGER,
+    testq3sci INTEGER,
+    testq4sci INTEGER,
+    testq1eng INTEGER,
+    testq2eng INTEGER,
+    testq3eng INTEGER,
+    testq4eng INTEGER,
+    notes_remarks TEXT
+  );
+  ")
+  
+  
+  
+  ###Assessment Tables
+  
+  # post_assessment_math1_sci1
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_math1_sci1 (
+    student_id ,
+    student_name TEXT,
+    grade_level INTEGER,
+    math1score INTEGER,
+    sci1score INTEGER
+  )
+")
+  
+  # post_assessment_math2_sci2
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_math2_sci2 (
+    student_id INTEGER PRIMARY KEY,
+    math2score INTEGER,
+    sci2score INTEGER
+  )
+")
+  
+  # post_assessment_math3_sci3
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_math3_sci3 (
+    student_id INTEGER PRIMARY KEY,
+    math3score INTEGER,
+    sci3score INTEGER
+  )
+")
+  
+  # post_assessment_math4_sci4
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_math4_sci4 (
+    student_id INTEGER PRIMARY KEY,
+    math4score INTEGER,
+    sci4score INTEGER
+  )
+")
+  
+  # post_assessment_english1
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_eng1 (
+    student_id INTEGER PRIMARY KEY,
+    read_level1 TEXT
+  )
+")
+  
+  # post_assessment_english2
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_eng2 (
+    student_id INTEGER PRIMARY KEY,
+    read_level2 TEXT
+  )
+")
+  
+  # post_assessment_english3
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_eng3 (
+    student_id INTEGER PRIMARY KEY,
+    read_level3 TEXT
+  )
+")
+  
+  # post_assessment_english4
+  dbExecute(con, "
+  CREATE TABLE IF NOT EXISTS post_assessment_eng4 (
+    student_id INTEGER PRIMARY KEY,
+    read_level4 TEXT
+  )
+")
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_student_id ON full_student_registry(student_id);")
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_grade_level ON full_student_registry(grade_level);")
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_sex ON full_student_registry(sex);")
+  dbExecute(con, "CREATE INDEX IF NOT EXISTS idx_section ON full_student_registry(section);")
+  
 }
+
 
 #' Generic function to get all records from a table
 get_table_data <- function(con, table_name) {
