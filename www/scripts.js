@@ -76,3 +76,16 @@ $(document).ready(function() {
     });
   }, 1000);
 });
+
+// Initialize AOS on first load
+$(document).ready(function () {
+    AOS.init({
+        once: false, // animations repeat on scroll
+        duration: 800 // adjust speed
+    });
+});
+
+// Re-run AOS after Shiny renders new content
+$(document).on('shiny:value', function() {
+    AOS.refresh();
+});

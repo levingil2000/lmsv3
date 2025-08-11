@@ -18,6 +18,7 @@ source("modules/facilities_mod.R")
 source("modules/partners_mod.R")
 source("modules/sessions_mod.R")
 source("modules/enrollment_mod.R")
+source("modules/timeline_mod.R")
 source("R/session_student_teacher_stitch.R") #helper functions to stitch sessions, teachers and students
 source("R/db_helpers.R")
 source("R/report_helpers.R")
@@ -40,7 +41,8 @@ ui <- navbarPage(
   tabPanel("Facilities", facilities_ui("facilities")),
   tabPanel("Partners", partners_ui("partners")),
   tabPanel("Sessions", sessions_ui("sessions")),
-  tabPanel("Student Enrollment", student_enrollment_ui("student_enrollment") )
+  tabPanel("Student Enrollment", student_enrollment_ui("student_enrollment") ),
+  tabPanel("Events", timeline_ui("timeline"))
 )
 
 # 3. Server: Call the server logic for each module
@@ -60,6 +62,8 @@ server <- function(input, output, session) {
   partners_server("partners", con)
   sessions_server("sessions", con)
   student_enrollment_server("student_enrollment", con)
+  timeline_server("timeline", con)
+  
 }
 
 # 4. Run the app
