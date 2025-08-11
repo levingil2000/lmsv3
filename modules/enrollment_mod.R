@@ -1,5 +1,5 @@
 # =============================================================================
-# REMEDIAL CLASS MANAGEMENT MODULE
+# REMEDIAL CLASS MANAGEMENT MODULE (UPDATED)
 # =============================================================================
 # Author: Assistant
 # Purpose: Shiny module for managing student enrollment in remedial classes
@@ -28,7 +28,7 @@ create_enrollment_table <- function(con) {
       status TEXT DEFAULT 'Active',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (student_id) REFERENCES full_students_registry(student_id),
+      FOREIGN KEY (student_id) REFERENCES full_student_registry(student_id),
       UNIQUE(student_id, quarter, subject)
     );")
 }
@@ -56,7 +56,7 @@ get_student_registry <- function(con) {
       testq2eng,
       testq3eng,
       testq4eng
-    FROM full_students_registry
+    FROM full_student_registry
     ORDER BY student_name
   "
   
@@ -76,8 +76,8 @@ get_student_registry <- function(con) {
   return(students)
 }
 
-# Get enrollment data
-get_enrollment_data <- function(con, quarter = NULL, subject = NULL) {
+# Get enrollment data with optional filtering
+get_enrollment_data <- function(con, quarter = NULL, subject = NULL, grade_level = NULL) {
   base_query <- "
     SELECT 
       e.enrollment_id,
@@ -91,7 +91,7 @@ get_enrollment_data <- function(con, quarter = NULL, subject = NULL) {
       s.grade_level,
       s.section
     FROM remedial_enrollments e
-    LEFT JOIN full_students_registry s ON e.student_id = s.student_id
+    LEFT JOIN full_student_registry s ON e.student_id = s.student_id
     WHERE e.status = 'Active'
   "
   
@@ -104,14 +104,31 @@ get_enrollment_data <- function(con, quarter = NULL, subject = NULL) {
     base_query <- paste(base_query, "AND e.subject = ?")
     params <- append(params, subject)
   }
+  if (!is.null(grade_level) && grade_level != "all") {
+    base_query <- paste(base_query, "AND s.grade_level = ?")
+    params <- append(params, as.numeric(grade_level))
+  }
   
-  base_query <- paste(base_query, "ORDER BY s.student_name")
+  base_query <- paste(base_query, "ORDER BY s.grade_level, s.student_name")
   
   if (length(params) > 0) {
     return(dbGetQuery(con, base_query, params))
   } else {
     return(dbGetQuery(con, base_query))
   }
+}
+
+# Get unique grade levels for a specific quarter/subject combination
+get_enrolled_grades <- function(con, quarter, subject) {
+  query <- "
+    SELECT DISTINCT s.grade_level
+    FROM remedial_enrollments e
+    LEFT JOIN full_student_registry s ON e.student_id = s.student_id
+    WHERE e.status = 'Active' AND e.quarter = ? AND e.subject = ?
+    ORDER BY s.grade_level
+  "
+  result <- dbGetQuery(con, query, params = list(quarter, subject))
+  return(result$grade_level)
 }
 
 # Enroll students
@@ -163,7 +180,7 @@ enroll_students <- function(con, student_ids, quarter, subject, initial_attendan
   return(list(success = success_count, duplicates = duplicate_count))
 }
 
-# Update attendance
+# Update attendance (changed to set attendance directly rather than increment)
 update_attendance <- function(con, enrollment_id, attendance) {
   dbExecute(con, 
             "UPDATE remedial_enrollments 
@@ -172,34 +189,24 @@ update_attendance <- function(con, enrollment_id, attendance) {
             params = list(attendance, enrollment_id))
 }
 
-# Add attendance to students
-add_attendance_to_students <- function(con, enrollment_ids, attendance_to_add) {
+# Set attendance for multiple students (new function for direct setting)
+set_attendance_for_students <- function(con, enrollment_ids, new_attendance) {
   success_count <- 0
   
   for (enrollment_id in enrollment_ids) {
     tryCatch({
-      # Get current attendance
-      current <- dbGetQuery(con, 
-                            "SELECT total_attendance FROM remedial_enrollments WHERE enrollment_id = ?",
-                            params = list(enrollment_id))
+      # Update with new attendance value directly
+      dbExecute(con, 
+                "UPDATE remedial_enrollments 
+         SET total_attendance = ?, updated_at = CURRENT_TIMESTAMP 
+         WHERE enrollment_id = ?",
+                params = list(new_attendance, enrollment_id))
       
-      if (nrow(current) > 0) {
-        new_attendance <- current$total_attendance + attendance_to_add
-        
-        # Update with new attendance
-        dbExecute(con, 
-                  "UPDATE remedial_enrollments 
-           SET total_attendance = ?, updated_at = CURRENT_TIMESTAMP 
-           WHERE enrollment_id = ?",
-                  params = list(new_attendance, enrollment_id))
-        
-        success_count <- success_count + 1
-        cat("Added", attendance_to_add, "attendance to enrollment_id", enrollment_id, 
-            "- New total:", new_attendance, "\n")
-      }
+      success_count <- success_count + 1
+      cat("Set attendance for enrollment_id", enrollment_id, "to:", new_attendance, "\n")
       
     }, error = function(e) {
-      cat("Error adding attendance to enrollment", enrollment_id, ":", e$message, "\n")
+      cat("Error setting attendance for enrollment", enrollment_id, ":", e$message, "\n")
     })
   }
   
@@ -315,7 +322,7 @@ student_enrollment_ui <- function(id) {
       )
     ),
     
-    # Manage Enrollments Tab
+    # Manage Enrollments Tab (UPDATED)
     tabPanel(
       title = "Manage Classes",
       value = "manage",
@@ -327,7 +334,7 @@ student_enrollment_ui <- function(id) {
           h4("Update Attendance and Remove Students"),
           
           fluidRow(
-            column(3,
+            column(2,
                    selectInput(ns("manage_quarter"), "Quarter:", 
                                choices = c("Q1", "Q2", "Q3", "Q4"), 
                                selected = "Q1")
@@ -339,32 +346,38 @@ student_enrollment_ui <- function(id) {
                                            "Science" = "science"), 
                                selected = "english")
             ),
-            column(3,
-                   numericInput(ns("add_attendance_value"), "Add Attendance:", 
-                                value = 1, min = 1, max = 20, step = 1)
+            column(2,
+                   selectInput(ns("manage_grade"), "Grade Level:", 
+                               choices = c("All Grades" = "all"),
+                               selected = "all")
             ),
             column(3,
+                   numericInput(ns("set_attendance_value"), "Set Attendance To:", 
+                                value = 0, min = 0, max = 100, step = 1)
+            ),
+            column(2,
                    actionButton(ns("refresh_manage"), "Refresh", class = "btn-info", 
-                                style = "margin-top: 25px;")
+                                style = "margin-top: 25px; width: 100%;")
             )
           ),
           
           fluidRow(
             column(6,
-                   actionButton(ns("add_attendance_all"), "Add Attendance to All Students", 
+                   actionButton(ns("set_attendance_all"), "Set Attendance for All Students", 
                                 class = "btn-success", style = "width: 100%; margin-top: 10px;")
             ),
             column(6,
-                   actionButton(ns("add_attendance_selected"), "Add Attendance to Selected", 
+                   actionButton(ns("set_attendance_selected"), "Set Attendance for Selected", 
                                 class = "btn-warning", style = "width: 100%; margin-top: 10px;")
             )
           ),
           
           hr(),
           p("• Click on attendance numbers to edit directly"),
-          p("• Select students and use 'Add Attendance to Selected' to increment their attendance"),
-          p("• Use 'Add Attendance to All Students' to increment everyone's attendance"),
+          p("• Select students and use 'Set Attendance for Selected' to update their attendance"),
+          p("• Use 'Set Attendance for All Students' to set everyone's attendance to the same value"),
           p("• Use Remove buttons to unenroll students"),
+          h4(textOutput(ns("manage_title"))),
           DT::dataTableOutput(ns("attendance_management_table"))
         )
       )
@@ -427,6 +440,23 @@ student_enrollment_server <- function(id, con) {
         grade_choices[paste("Grade", grade)] <- as.character(grade)
       }
       updateSelectInput(session, "grade_filter", choices = grade_choices)
+    })
+    
+    # Update manage grade choices when quarter/subject changes
+    observe({
+      req(input$manage_quarter, input$manage_subject)
+      
+      enrolled_grades <- get_enrolled_grades(con, input$manage_quarter, input$manage_subject)
+      
+      if (length(enrolled_grades) > 0) {
+        grade_choices <- c("All Grades" = "all")
+        for (grade in enrolled_grades) {
+          grade_choices[paste("Grade", grade)] <- as.character(grade)
+        }
+        updateSelectInput(session, "manage_grade", choices = grade_choices)
+      } else {
+        updateSelectInput(session, "manage_grade", choices = c("All Grades" = "all"))
+      }
     })
     
     # Student Registry Table
@@ -592,10 +622,18 @@ student_enrollment_server <- function(id, con) {
       }
     })
     
-    # Management table
+    # Management table (UPDATED with grade level filtering)
     manage_enrollment <- reactive({
       input$refresh_manage  # Dependency for refresh
-      get_enrollment_data(con, input$manage_quarter, input$manage_subject)
+      values$last_refresh   # Additional dependency
+      get_enrollment_data(con, input$manage_quarter, input$manage_subject, input$manage_grade)
+    })
+    
+    output$manage_title <- renderText({
+      enrollment_data <- manage_enrollment()
+      grade_text <- if(input$manage_grade == "all") "All Grades" else paste("Grade", input$manage_grade)
+      paste("Managing", toupper(input$manage_subject), "-", input$manage_quarter, 
+            "- (", grade_text, "):", nrow(enrollment_data), "students")
     })
     
     output$attendance_management_table <- DT::renderDataTable({
@@ -618,10 +656,10 @@ student_enrollment_server <- function(id, con) {
             scrollX = TRUE,
             searching = TRUE
           ),
-          caption = "Select students to add attendance, or click attendance numbers to edit directly"
+          caption = "Select students to set attendance, or click attendance numbers to edit directly"
         )
       } else {
-        empty_df <- data.frame(Message = "No students enrolled in this class")
+        empty_df <- data.frame(Message = "No students enrolled in this class/grade combination")
         DT::datatable(
           empty_df,
           options = list(searching = FALSE, paging = FALSE, info = FALSE)
@@ -641,6 +679,7 @@ student_enrollment_server <- function(id, con) {
         if (!is.na(new_attendance) && new_attendance >= 0) {
           update_attendance(con, enrollment_id, new_attendance)
           showNotification("Attendance updated successfully", type = "message")
+          values$last_refresh <- Sys.time()
         } else {
           showNotification("Invalid attendance value", type = "error")
         }
@@ -652,24 +691,25 @@ student_enrollment_server <- function(id, con) {
       enrollment_id <- input$remove_student
       remove_enrollment(con, enrollment_id)
       showNotification("Student removed from class", type = "message")
+      values$last_refresh <- Sys.time()
     })
     
-    # Handle adding attendance to all students
-    observeEvent(input$add_attendance_all, {
+    # Handle setting attendance for all students (UPDATED)
+    observeEvent(input$set_attendance_all, {
       enrollment_data <- manage_enrollment()
-      attendance_to_add <- input$add_attendance_value
+      new_attendance <- input$set_attendance_value
       
       if (nrow(enrollment_data) > 0) {
-        if (is.na(attendance_to_add) || attendance_to_add <= 0) {
-          showNotification("Please enter a valid attendance value (1 or greater)", type = "error")
+        if (is.na(new_attendance) || new_attendance < 0) {
+          showNotification("Please enter a valid attendance value (0 or greater)", type = "error")
           return()
         }
         
         enrollment_ids <- enrollment_data$enrollment_id
-        success_count <- add_attendance_to_students(con, enrollment_ids, attendance_to_add)
+        success_count <- set_attendance_for_students(con, enrollment_ids, new_attendance)
         
         showNotification(
-          paste("Added", attendance_to_add, "attendance to", success_count, "students"),
+          paste("Set attendance to", new_attendance, "for", success_count, "students"),
           type = "message"
         )
         
@@ -680,24 +720,24 @@ student_enrollment_server <- function(id, con) {
       }
     })
     
-    # Handle adding attendance to selected students
-    observeEvent(input$add_attendance_selected, {
+    # Handle setting attendance for selected students (UPDATED)
+    observeEvent(input$set_attendance_selected, {
       selected_rows <- input$attendance_management_table_rows_selected
-      attendance_to_add <- input$add_attendance_value
+      new_attendance <- input$set_attendance_value
       
       if (length(selected_rows) > 0) {
-        if (is.na(attendance_to_add) || attendance_to_add <= 0) {
-          showNotification("Please enter a valid attendance value (1 or greater)", type = "error")
+        if (is.na(new_attendance) || new_attendance < 0) {
+          showNotification("Please enter a valid attendance value (0 or greater)", type = "error")
           return()
         }
         
         enrollment_data <- manage_enrollment()
         selected_enrollment_ids <- enrollment_data[selected_rows, "enrollment_id"]
         
-        success_count <- add_attendance_to_students(con, selected_enrollment_ids, attendance_to_add)
+        success_count <- set_attendance_for_students(con, selected_enrollment_ids, new_attendance)
         
         showNotification(
-          paste("Added", attendance_to_add, "attendance to", success_count, "selected students"),
+          paste("Set attendance to", new_attendance, "for", success_count, "selected students"),
           type = "message"
         )
         
@@ -723,8 +763,8 @@ student_enrollment_server <- function(id, con) {
             e.total_attendance,
             e.status
           FROM remedial_enrollments e
-          LEFT JOIN full_students_registry s ON e.student_id = s.student_id
-          ORDER BY e.quarter, e.subject, s.student_name
+          LEFT JOIN full_student_registry s ON e.student_id = s.student_id
+          ORDER BY e.quarter, e.subject, s.grade_level, s.student_name
         ")
       } else {
         get_enrollment_data(con)
@@ -769,8 +809,8 @@ student_enrollment_server <- function(id, con) {
             s.RMA_before_math_proficiency,
             s.before_reading_proficiency
           FROM remedial_enrollments e
-          LEFT JOIN full_students_registry s ON e.student_id = s.student_id
-          ORDER BY e.quarter, e.subject, s.student_name
+          LEFT JOIN full_student_registry s ON e.student_id = s.student_id
+          ORDER BY e.quarter, e.subject, s.grade_level, s.student_name
         ")
         write.csv(all_data, file, row.names = FALSE)
       }
@@ -784,32 +824,3 @@ student_enrollment_server <- function(id, con) {
     })
   })
 }
-
-# =============================================================================
-# USAGE EXAMPLE (for integration into your existing LMS)
-# =============================================================================
-
-# In your main app UI, add this to a tab:
-# tabPanel("Student Enrollment", 
-#          student_enrollment_ui("student_enrollment"))
-
-# In your main app server, add this:
-# student_enrollment_server("student_enrollment", con)
-
-# =============================================================================
-# STANDALONE DEMO (remove this section when integrating)
-# =============================================================================
-
-# Uncomment below to run as standalone app for testing
-# ui <- fluidPage(
-#   titlePanel("Remedial Class Management System"),
-#   student_enrollment_ui("demo")
-# )
-# 
-# server <- function(input, output, session) {
-#   # Replace 'con' with your actual database connection
-#   # con <- dbConnect(RSQLite::SQLite(), "lms_database.sqlite")
-#   student_enrollment_server("demo", con)
-# }
-# 
-# shinyApp(ui = ui, server = server)
