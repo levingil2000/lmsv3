@@ -1,5 +1,3 @@
-# Sessions Module
-
 sessions_ui <- function(id) {
   ns <- NS(id)
   
@@ -7,9 +5,13 @@ sessions_ui <- function(id) {
     h1("Sessions Management", style = "color: #2c3e50; margin-bottom: 30px;"),
     
     fluidRow(
-      column(12,
+      column(6,
              actionButton(ns("add_session"), "Add New Session", 
                           class = "btn-primary", style = "margin-bottom: 15px;")
+      ),
+      column(6,
+             actionButton(ns("refresh_data"), "Refresh Data", 
+                          class = "btn-info", style = "margin-bottom: 15px; float: right;")
       )
     ),
     
@@ -51,13 +53,17 @@ sessions_ui <- function(id) {
                      selectInput(ns("teacher_id"), "Teacher:",
                                  choices = NULL, selected = NULL),
                      dateInput(ns("session_date"), "Date:", value = Sys.Date()),
-                     numericInput(ns("duration"), "Duration (hours):", value = 1, min = 0.5, step = 0.5)
+                     numericInput(ns("duration"), "Duration (hours):", value = 1, min = 0.5, step = 0.5),
+                     numericInput(ns("grade_level"), "Grade Level:", value = 7, min = 1, max = 12),
+                     selectInput(ns("quarter"), "Quarter:", choices = 1:4, selected = 1)
               ),
               column(6,
                      textInput(ns("learning_competency"), "Learning Competency:", ""),
                      textInput(ns("subject"), "Subject:", ""),
-                     numericInput(ns("grade_level"), "Grade Level:", value = 7, min = 1, max = 12),
-                     textAreaInput(ns("list_of_students"), "List of Students (comma-separated):", "", rows = 4)
+                     textAreaInput(ns("remarks_observation"), "Remarks and Observations:",
+                                   "Most of the students are having a hard time multiplying", rows = 3),
+                     textAreaInput(ns("assessment_reflection"), "Assessment and Reflection:",
+                                   "14 out of 15 students scored well on the exercise, this specific method seems effective", rows = 3)
               )
             ),
             
@@ -74,7 +80,6 @@ sessions_server <- function(id, con) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
-    # Reactive values
     values <- reactiveValues(
       sessions_data = NULL,
       filtered_data = NULL,
@@ -82,101 +87,86 @@ sessions_server <- function(id, con) {
       refresh = 0
     )
     
-    # Load sessions data
     observe({
-      values$refresh  # Dependency for refresh
+      values$refresh
       values$sessions_data <- get_table_data(con, "teacher_sessions")
     })
     
-    # Update filter choices
-    observe({
-      req(values$sessions_data)
-      
-      # Teachers
-      teachers <- dbGetQuery(con, "SELECT DISTINCT name, teacherID FROM teacher_registry WHERE teacher_status = 'Active'")
-      teacher_choices <- setNames(teachers$teacherID, teachers$name)
-      updateSelectInput(session, "filter_teacher",
-                        choices = c("All" = "", teacher_choices))
-      
-      # For modal teacher selection
-      updateSelectInput(session, "teacher_id",
-                        choices = c("Select Teacher" = "", teacher_choices))
-      
-      # Subjects
-      subjects <- unique(values$sessions_data$subject[!is.na(values$sessions_data$subject)])
-      updateSelectInput(session, "filter_subject",
-                        choices = c("All" = "", subjects))
-      
-      # Learning competencies
-      competencies <- unique(values$sessions_data$learning_competency[!is.na(values$sessions_data$learning_competency)])
-      updateSelectInput(session, "filter_competency",
-                        choices = c("All" = "", competencies))
+    # Refresh button
+    observeEvent(input$refresh_data, {
+      values$refresh <- values$refresh + 1
     })
     
-    # Filter sessions data
     observe({
       req(values$sessions_data)
       
+      teachers <- dbGetQuery(con, "SELECT DISTINCT name, teacherID FROM teacher_registry WHERE teacher_status = 'Active'")
+      teacher_choices <- setNames(teachers$teacherID, teachers$name)
+      
+      updateSelectInput(session, "filter_teacher", choices = c("All" = "", teacher_choices))
+      updateSelectInput(session, "teacher_id", choices = c("Select Teacher" = "", teacher_choices))
+      
+      subjects <- unique(values$sessions_data$subject[!is.na(values$sessions_data$subject)])
+      updateSelectInput(session, "filter_subject", choices = c("All" = "", subjects))
+      
+      competencies <- unique(values$sessions_data$learning_competency[!is.na(values$sessions_data$learning_competency)])
+      updateSelectInput(session, "filter_competency", choices = c("All" = "", competencies))
+    })
+    
+    # Auto-fill subject when teacher is selected
+    observeEvent(input$teacher_id, {
+      if (input$teacher_id != "") {
+        subject_row <- dbGetQuery(con, sprintf("SELECT subject_handled FROM teacher_registry WHERE teacherID = '%s'", input$teacher_id))
+        if (nrow(subject_row) > 0) {
+          updateTextInput(session, "subject", value = subject_row$subject_handled[1])
+        }
+      }
+    })
+    
+    observe({
+      req(values$sessions_data)
       filtered <- values$sessions_data
       
-      # Apply filters
       if (!is.null(input$filter_teacher) && input$filter_teacher != "") {
         filtered <- filtered[filtered$teacher_id == input$filter_teacher, ]
       }
-      
       if (!is.null(input$filter_subject) && input$filter_subject != "") {
         filtered <- filtered[filtered$subject == input$filter_subject, ]
       }
-      
       if (!is.null(input$filter_competency) && input$filter_competency != "") {
         filtered <- filtered[filtered$learning_competency == input$filter_competency, ]
       }
-      
       if (!is.null(input$filter_date)) {
         filtered <- filtered[filtered$date >= input$filter_date[1] & filtered$date <= input$filter_date[2], ]
       }
-      
       values$filtered_data <- filtered
     })
     
-    # Sessions table
     output$sessions_table <- DT::renderDataTable({
       req(values$filtered_data)
       
-      # Join with teacher names for display
       display_data <- values$filtered_data
-      
       if (nrow(display_data) > 0) {
-        # Get teacher names
         teacher_names <- dbGetQuery(con, "SELECT teacherID, name FROM teacher_registry")
         display_data <- merge(display_data, teacher_names, by.x = "teacher_id", by.y = "teacherID", all.x = TRUE)
         
         display_data <- display_data %>%
-          select(session_id, name, date, duration, learning_competency, subject, grade_level, list_of_students) %>%
+          select(session_id, name, date, duration, learning_competency, subject, grade_level, quarter, remarks_observation, assessment_reflection) %>%
           rename(teacher_name = name)
       }
       
       DT::datatable(display_data,
-                    options = list(
-                      pageLength = 10, 
-                      scrollX = TRUE,
-                      columnDefs = list(
-                        list(targets = c(7), width = "200px")  # list_of_students column
-                      )
-                    ),
+                    options = list(pageLength = 10, scrollX = TRUE),
                     rownames = FALSE,
                     selection = "single")
     })
     
-    # Handle row selection for editing
     observeEvent(input$sessions_table_rows_selected, {
       if (length(input$sessions_table_rows_selected) > 0) {
         selected_row <- input$sessions_table_rows_selected
         session_data <- values$filtered_data[selected_row, ]
-        
         values$editing_id <- session_data$id
         
-        # Populate modal fields
         updateTextInput(session, "session_id", value = session_data$session_id)
         updateSelectInput(session, "teacher_id", selected = session_data$teacher_id)
         updateDateInput(session, "session_date", value = as.Date(session_data$date))
@@ -184,23 +174,19 @@ sessions_server <- function(id, con) {
         updateTextInput(session, "learning_competency", value = session_data$learning_competency)
         updateTextInput(session, "subject", value = session_data$subject)
         updateNumericInput(session, "grade_level", value = session_data$grade_level)
-        updateTextAreaInput(session, "list_of_students", value = session_data$list_of_students)
+        updateSelectInput(session, "quarter", selected = session_data$quarter)
+        updateTextAreaInput(session, "remarks_observation", value = session_data$remarks_observation)
+        updateTextAreaInput(session, "assessment_reflection", value = session_data$assessment_reflection)
         
-        # Show delete button
         shinyjs::show("delete_session")
-        
         toggleModal(session, "session_modal", toggle = "open")
       }
     })
     
-    # Handle add new session
     observeEvent(input$add_session, {
       values$editing_id <- NULL
-      
-      # Generate new session ID
       session_id <- paste0("SES_", format(Sys.Date(), "%Y%m%d"), "_", sprintf("%04d", sample(1:9999, 1)))
       
-      # Clear modal fields
       updateTextInput(session, "session_id", value = session_id)
       updateSelectInput(session, "teacher_id", selected = "")
       updateDateInput(session, "session_date", value = Sys.Date())
@@ -208,13 +194,13 @@ sessions_server <- function(id, con) {
       updateTextInput(session, "learning_competency", value = "")
       updateTextInput(session, "subject", value = "")
       updateNumericInput(session, "grade_level", value = 7)
-      updateTextAreaInput(session, "list_of_students", value = "")
+      updateSelectInput(session, "quarter", selected = 1)
+      updateTextAreaInput(session, "remarks_observation", value = "Most of the students are having a hard time multiplying")
+      updateTextAreaInput(session, "assessment_reflection", value = "14 out of 15 students scored well on the exercise, this specific method seems effective")
       
-      # Hide delete button
       shinyjs::hide("delete_session")
     })
     
-    # Handle save session
     observeEvent(input$save_session, {
       req(input$session_id, input$teacher_id, input$session_date, input$duration)
       
@@ -226,15 +212,15 @@ sessions_server <- function(id, con) {
         learning_competency = input$learning_competency,
         subject = input$subject,
         grade_level = input$grade_level,
-        list_of_students = input$list_of_students,
+        quarter = input$quarter,
+        remarks_observation = input$remarks_observation,
+        assessment_reflection = input$assessment_reflection,
         stringsAsFactors = FALSE
       )
       
       if (is.null(values$editing_id)) {
-        # Insert new session
         result <- insert_data(con, "teacher_sessions", session_data)
       } else {
-        # Update existing session
         result <- update_data(con, "teacher_sessions", session_data, "id", values$editing_id)
       }
       
@@ -247,13 +233,11 @@ sessions_server <- function(id, con) {
       }
     })
     
-    # Handle delete session
     observeEvent(input$delete_session, {
       req(values$editing_id)
-      
       showModal(modalDialog(
         title = "Confirm Deletion",
-        "Are you sure you want to delete this session? This action cannot be undone.",
+        "Are you sure you want to delete this session?",
         footer = tagList(
           actionButton(ns("confirm_delete"), "Yes, Delete", class = "btn-danger"),
           modalButton("Cancel")
@@ -261,10 +245,8 @@ sessions_server <- function(id, con) {
       ))
     })
     
-    # Handle confirm delete
     observeEvent(input$confirm_delete, {
       req(values$editing_id)
-      
       result <- delete_data(con, "teacher_sessions", "id", values$editing_id)
       
       if (result$success) {
@@ -277,7 +259,6 @@ sessions_server <- function(id, con) {
       }
     })
     
-    # Handle cancel
     observeEvent(input$cancel_session, {
       toggleModal(session, "session_modal", toggle = "close")
     })

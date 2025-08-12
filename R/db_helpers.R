@@ -76,12 +76,15 @@ create_tables <- function(con) {
       learning_competency TEXT,
       subject TEXT,
       grade_level INTEGER,
-      list_of_students TEXT,
+      quarter INTEGER,
+      remarks_observation TEXT,
+      assessment_reflection TEXT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (teacher_id) REFERENCES teacher_registry(teacherID)
     )
   ")
   
+
   # Assessment Table
   dbExecute(con, "
     CREATE TABLE IF NOT EXISTS assessment_table (
