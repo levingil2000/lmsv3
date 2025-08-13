@@ -1,4 +1,14 @@
-# Teachers Module
+# Teachers Module - Enhanced with Sentiment Analysis
+
+# Make sure to install required packages if not already installed:
+# install.packages(c("quanteda", "quanteda.textstats", "sentimentr"))
+
+library(quanteda)
+library(quanteda.textstats)
+library(sentimentr)
+library(dplyr)
+library(plotly)
+library(DT)
 
 teachers_ui <- function(id) {
   ns <- NS(id)
@@ -44,18 +54,54 @@ teachers_ui <- function(id) {
                  )
                ),
                
-               # Summary Cards
+               # First row of charts
                fluidRow(
                  column(6,
                         wellPanel(
-                          h4("Total Tutor Sessions by Teacher", style = "color: #2c3e50;"),
-                          withSpinner(plotlyOutput(ns("sessions_by_teacher_chart")))
+                          h4("Tutoring Hours Distribution per Teacher", style = "color: #2c3e50;"),
+                          withSpinner(plotlyOutput(ns("hours_distribution_chart")))
                         )
                  ),
                  column(6,
                         wellPanel(
-                          h4("Teaching Hours Distribution", style = "color: #2c3e50;"),
-                          withSpinner(plotlyOutput(ns("hours_distribution_chart")))
+                          h4("Learning Competency Distribution", style = "color: #2c3e50;"),
+                          withSpinner(plotlyOutput(ns("competency_distribution_chart")))
+                        )
+                 )
+               ),
+               
+               # Sentiment Analysis Section
+               fluidRow(
+                 column(6,
+                        wellPanel(
+                          h4("Sentiment Analysis", style = "color: #2c3e50;"),
+                          br(),
+                          fluidRow(
+                            column(6,
+                                   h5("Remarks & Observations", style = "color: #34495e;"),
+                                   withSpinner(plotOutput(ns("remarks_sentiment_meter"), height = "150px"))
+                            ),
+                            column(6,
+                                   h5("Assessment Reflection", style = "color: #34495e;"),
+                                   withSpinner(plotOutput(ns("reflection_sentiment_meter"), height = "150px"))
+                            )
+                          )
+                        )
+                 ),
+                 column(6,
+                        wellPanel(
+                          h4("Common Phrases Analysis", style = "color: #2c3e50;"),
+                          br(),
+                          fluidRow(
+                            column(6,
+                                   h5("Top Remarks Phrases", style = "color: #34495e;"),
+                                   withSpinner(verbatimTextOutput(ns("top_remarks_phrases")))
+                            ),
+                            column(6,
+                                   h5("Top Reflection Phrases", style = "color: #34495e;"),
+                                   withSpinner(verbatimTextOutput(ns("top_reflection_phrases")))
+                            )
+                          )
                         )
                  )
                ),
@@ -107,6 +153,89 @@ teachers_server <- function(id, con) {
       editing_id = NULL,
       refresh = 0
     )
+    
+    # Helper function to create sentiment meter
+    create_sentiment_meter <- function(sentiment_score, title) {
+      # Normalize sentiment score to 0-10 scale
+      normalized_score <- pmax(0, pmin(10, (sentiment_score + 1) * 5))
+      
+      # Determine color based on score
+      if (normalized_score <= 3.3) {
+        color <- "#e74c3c"  # Red
+      } else if (normalized_score <= 6.7) {
+        color <- "#f39c12"  # Yellow/Orange
+      } else {
+        color <- "#27ae60"  # Green
+      }
+      
+      # Create gauge-like visualization
+      par(mar = c(2, 2, 2, 2), bg = "white")
+      plot(0, 0, type = "n", xlim = c(0, 10), ylim = c(0, 1), 
+           axes = FALSE, xlab = "", ylab = "", main = title)
+      
+      # Background bar
+      rect(0, 0.3, 10, 0.7, col = "#ecf0f1", border = NA)
+      
+      # Filled bar based on sentiment
+      rect(0, 0.3, normalized_score, 0.7, col = color, border = NA)
+      
+      # Add scale markers
+      for (i in 0:10) {
+        lines(c(i, i), c(0.2, 0.8), col = "black", lwd = 0.5)
+      }
+      
+      # Add score text
+      text(5, 0.1, paste("Score:", round(normalized_score, 1)), 
+           cex = 1.2, font = 2)
+      
+      # Add scale labels
+      text(0, 0.9, "Negative", cex = 0.8)
+      text(5, 0.9, "Neutral", cex = 0.8)
+      text(10, 0.9, "Positive", cex = 0.8)
+    }
+    
+    # Helper function to extract common phrases
+    extract_common_phrases <- function(text_data, n_phrases = 5) {
+      if (is.null(text_data) || length(text_data) == 0 || all(is.na(text_data))) {
+        return("No data available")
+      }
+      
+      # Clean and prepare text
+      clean_text <- text_data[!is.na(text_data) & text_data != ""]
+      
+      if (length(clean_text) == 0) {
+        return("No data available")
+      }
+      
+      # Create corpus
+      corpus <- corpus(clean_text)
+      
+      # Create tokens and remove stopwords, punctuation
+      tokens <- tokens(corpus, remove_punct = TRUE, remove_symbols = TRUE) %>%
+        tokens_remove(stopwords("english")) %>%
+        tokens_tolower()
+      
+      # Create n-grams (2-3 word phrases)
+      bigrams <- tokens_ngrams(tokens, n = 2:3)
+      
+      # Create document-feature matrix
+      dfm_phrases <- dfm(bigrams)
+      
+      # Get top features
+      top_features <- textstat_frequency(dfm_phrases, n = n_phrases)
+      
+      if (nrow(top_features) == 0) {
+        return("No common phrases found")
+      }
+      
+      # Format output
+      phrases <- paste(1:min(n_phrases, nrow(top_features)), ". ", 
+                       top_features$feature[1:min(n_phrases, nrow(top_features))], 
+                       " (", top_features$frequency[1:min(n_phrases, nrow(top_features))], ")",
+                       sep = "", collapse = "\n")
+      
+      return(phrases)
+    }
     
     # Load teachers data
     observe({
@@ -239,42 +368,7 @@ teachers_server <- function(id, con) {
       }
     }
     
-    # Sessions by Teacher Chart
-    output$sessions_by_teacher_chart <- renderPlotly({
-      filter_conditions <- build_analytics_filter()
-      
-      query <- paste0("
-        SELECT tr.name, COUNT(ts.id) as session_count
-        FROM teacher_registry tr
-        LEFT JOIN teacher_sessions ts ON tr.teacherID = ts.teacher_id
-        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
-                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
-                      "
-        GROUP BY tr.name
-        ORDER BY session_count DESC
-        LIMIT 10
-      ")
-      
-      teacher_data <- dbGetQuery(con, query)
-      
-      if (nrow(teacher_data) > 0) {
-        p <- plot_ly(teacher_data, 
-                     x = ~reorder(name, session_count), 
-                     y = ~session_count,
-                     type = 'bar',
-                     marker = list(color = '#9b59b6'),
-                     hovertemplate = '<b>%{x}</b><br>Sessions: %{y}<extra></extra>') %>%
-          layout(title = "",
-                 xaxis = list(title = "Teacher"),
-                 yaxis = list(title = "Number of Sessions"))
-        p
-      } else {
-        plotly_empty() %>%
-          layout(title = "No data available")
-      }
-    })
-    
-    # Teaching Hours Distribution Chart
+    # Teaching Hours Distribution Chart (Changed to Horizontal Bar)
     output$hours_distribution_chart <- renderPlotly({
       filter_conditions <- build_analytics_filter()
       
@@ -288,21 +382,202 @@ teachers_server <- function(id, con) {
         GROUP BY tr.name
         HAVING total_hours > 0
         ORDER BY total_hours DESC
+        LIMIT 10
       ")
       
       hours_data <- dbGetQuery(con, query)
       
       if (nrow(hours_data) > 0) {
         p <- plot_ly(hours_data, 
-                     labels = ~name, 
-                     values = ~total_hours,
-                     type = 'pie',
-                     hovertemplate = '<b>%{label}</b><br>Hours: %{value}<extra></extra>') %>%
-          layout(title = "")
+                     y = ~reorder(name, total_hours), 
+                     x = ~total_hours,
+                     type = 'bar',
+                     orientation = 'h',
+                     marker = list(color = '#3498db'),
+                     hovertemplate = '<b>%{y}</b><br>Hours: %{x}<extra></extra>') %>%
+          layout(title = "",
+                 yaxis = list(title = "Teacher"),
+                 xaxis = list(title = "Total Hours"),
+                 margin = list(l = 120))
         p
       } else {
         plotly_empty() %>%
           layout(title = "No data available")
+      }
+    })
+    
+    # Learning Competency Distribution Chart (New Horizontal Bar Chart)
+    output$competency_distribution_chart <- renderPlotly({
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT learning_competency, COUNT(*) as session_count
+        FROM teacher_sessions ts
+        JOIN teacher_registry tr ON tr.teacherID = ts.teacher_id
+        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
+                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
+                      " AND learning_competency IS NOT NULL AND learning_competency != ''
+        GROUP BY learning_competency
+        ORDER BY session_count DESC
+        LIMIT 10
+      ")
+      
+      competency_data <- dbGetQuery(con, query)
+      
+      if (nrow(competency_data) > 0) {
+        # Truncate long competency names for better display
+        competency_data$display_name <- sapply(competency_data$learning_competency, function(x) {
+          if (nchar(x) > 40) {
+            paste0(substr(x, 1, 37), "...")
+          } else {
+            x
+          }
+        })
+        
+        p <- plot_ly(competency_data, 
+                     y = ~reorder(display_name, session_count), 
+                     x = ~session_count,
+                     type = 'bar',
+                     orientation = 'h',
+                     marker = list(color = '#e74c3c'),
+                     hovertemplate = '<b>%{customdata}</b><br>Sessions: %{x}<extra></extra>',
+                     customdata = ~learning_competency) %>%
+          layout(title = "",
+                 yaxis = list(title = "Learning Competency"),
+                 xaxis = list(title = "Number of Sessions"),
+                 margin = list(l = 150))
+        p
+      } else {
+        plotly_empty() %>%
+          layout(title = "No data available")
+      }
+    })
+    
+    # Sentiment Analysis for Remarks using sentimentr
+    output$remarks_sentiment_meter <- renderPlot({
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT remarks_observation
+        FROM teacher_sessions ts
+        JOIN teacher_registry tr ON tr.teacherID = ts.teacher_id
+        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
+                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
+                      " AND remarks_observation IS NOT NULL AND remarks_observation != ''
+      ")
+      
+      remarks_data <- dbGetQuery(con, query)
+      
+      if (nrow(remarks_data) > 0 && !all(is.na(remarks_data$remarks_observation))) {
+        # Clean and prepare text data
+        clean_remarks <- remarks_data$remarks_observation[!is.na(remarks_data$remarks_observation) & 
+                                                            remarks_data$remarks_observation != ""]
+        
+        if (length(clean_remarks) > 0) {
+          # Perform sentiment analysis using sentimentr
+          tryCatch({
+            sentiment_results <- sentiment(clean_remarks)
+            avg_sentiment <- mean(sentiment_results$sentiment, na.rm = TRUE)
+            
+            # sentimentr returns scores typically between -1 and 1, but can exceed this range
+            # Normalize to ensure it fits our expected range
+            avg_sentiment <- pmax(-1, pmin(1, avg_sentiment))
+          }, error = function(e) {
+            avg_sentiment <- 0
+          })
+        } else {
+          avg_sentiment <- 0
+        }
+      } else {
+        avg_sentiment <- 0
+      }
+      
+      create_sentiment_meter(avg_sentiment, "")
+    })
+    
+    # Sentiment Analysis for Assessment Reflection using sentimentr
+    output$reflection_sentiment_meter <- renderPlot({
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT assessment_reflection
+        FROM teacher_sessions ts
+        JOIN teacher_registry tr ON tr.teacherID = ts.teacher_id
+        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
+                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
+                      " AND assessment_reflection IS NOT NULL AND assessment_reflection != ''
+      ")
+      
+      reflection_data <- dbGetQuery(con, query)
+      
+      if (nrow(reflection_data) > 0 && !all(is.na(reflection_data$assessment_reflection))) {
+        # Clean and prepare text data
+        clean_reflections <- reflection_data$assessment_reflection[!is.na(reflection_data$assessment_reflection) & 
+                                                                     reflection_data$assessment_reflection != ""]
+        
+        if (length(clean_reflections) > 0) {
+          # Perform sentiment analysis using sentimentr
+          tryCatch({
+            sentiment_results <- sentiment(clean_reflections)
+            avg_sentiment <- mean(sentiment_results$sentiment, na.rm = TRUE)
+            
+            # sentimentr returns scores typically between -1 and 1, but can exceed this range
+            # Normalize to ensure it fits our expected range
+            avg_sentiment <- pmax(-1, pmin(1, avg_sentiment))
+          }, error = function(e) {
+            avg_sentiment <- 0
+          })
+        } else {
+          avg_sentiment <- 0
+        }
+      } else {
+        avg_sentiment <- 0
+      }
+      
+      create_sentiment_meter(avg_sentiment, "")
+    })
+    
+    # Top Remarks Phrases
+    output$top_remarks_phrases <- renderText({
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT remarks_observation
+        FROM teacher_sessions ts
+        JOIN teacher_registry tr ON tr.teacherID = ts.teacher_id
+        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
+                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
+                      " AND remarks_observation IS NOT NULL AND remarks_observation != ''
+      ")
+      
+      remarks_data <- dbGetQuery(con, query)
+      
+      if (nrow(remarks_data) > 0) {
+        extract_common_phrases(remarks_data$remarks_observation, 5)
+      } else {
+        "No remarks data available"
+      }
+    })
+    
+    # Top Reflection Phrases
+    output$top_reflection_phrases <- renderText({
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT assessment_reflection
+        FROM teacher_sessions ts
+        JOIN teacher_registry tr ON tr.teacherID = ts.teacher_id
+        ", gsub("WHERE", "WHERE tr.teacher_status = 'Active' AND", filter_conditions, fixed = TRUE),
+                      if (filter_conditions == "") "WHERE tr.teacher_status = 'Active'" else "",
+                      " AND assessment_reflection IS NOT NULL AND assessment_reflection != ''
+      ")
+      
+      reflection_data <- dbGetQuery(con, query)
+      
+      if (nrow(reflection_data) > 0) {
+        extract_common_phrases(reflection_data$assessment_reflection, 5)
+      } else {
+        "No reflection data available"
       }
     })
     

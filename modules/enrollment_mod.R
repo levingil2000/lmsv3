@@ -71,7 +71,7 @@ student_enrollment_server <- function(id, con) {
     # Initialize all tab servers
     dashboard_tab_server("dashboard", con, refresh_trigger)
     
-    student_registry_tab_server("registry", student_data)
+    student_registry_tab_server("registry", student_data, con)
     
     enroll_students_tab_server("enrollment", con, student_data, refresh_trigger)
     

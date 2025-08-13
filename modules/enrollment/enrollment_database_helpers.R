@@ -231,3 +231,8 @@ mark_students_passed <- function(con, enrollment_ids) {
   
   return(success_count)
 }
+
+##Null coallescing function
+
+# Null coalescing operator
+`%||%` <- function(x, y) if(is.null(x) || is.na(x) || x == "") y else x
