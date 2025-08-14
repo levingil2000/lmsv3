@@ -1,4 +1,4 @@
-# Student registry with update functionality
+# Student registry with update functionality and proper data refresh
 student_registry_tab_ui <- function(id) {
   ns <- NS(id)
   tabPanel(
@@ -48,7 +48,7 @@ student_registry_tab_ui <- function(id) {
 # =============================================================================
 # SERVER MODULE
 # =============================================================================
-student_registry_tab_server <- function(id, student_data, con) {
+student_registry_tab_server <- function(id, student_data, con, refresh_trigger) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
     
@@ -140,17 +140,35 @@ student_registry_tab_server <- function(id, student_data, con) {
           for (i in 1:nrow(existing_updates)) {
             student_name <- existing_updates$student_name[i]
             
-            # Create update query dynamically (excluding student_id)
+            # Get columns to update (excluding student_name and student_id)
             update_cols <- names(existing_updates)[!names(existing_updates) %in% c("student_name", "student_id")]
-            set_clause <- paste0(update_cols, " = ?", collapse = ", ")
             
+            # Build the query and values more carefully
+            set_parts <- paste0(update_cols, " = ?")
+            set_clause <- paste(set_parts, collapse = ", ")
             query <- paste("UPDATE full_student_registry SET", set_clause, "WHERE student_name = ?")
             
-            # Prepare values
-            values <- c(as.list(existing_updates[i, update_cols]), student_name)
+            # Extract values as individual scalars
+            values <- vector("list", length(update_cols) + 1)  # +1 for student_name
             
-            result <- DBI::dbExecute(con, query, values)
-            if (result > 0) updated_count <- updated_count + 1
+            for (j in seq_along(update_cols)) {
+              col_name <- update_cols[j]
+              values[[j]] <- as.character(existing_updates[i, col_name])
+            }
+            values[[length(values)]] <- as.character(student_name)  # WHERE clause value
+            
+            # Debug output (remove after testing)
+            cat("Updating student:", student_name, "\n")
+            cat("Query:", query, "\n")
+            cat("Values length:", length(values), "\n")
+            
+            tryCatch({
+              result <- DBI::dbExecute(con, query, values)
+              if (result > 0) updated_count <- updated_count + 1
+            }, error = function(e) {
+              cat("Error updating student", student_name, ":", e$message, "\n")
+              # Continue with next student rather than failing completely
+            })
           }
         }
         
@@ -175,9 +193,8 @@ student_registry_tab_server <- function(id, student_data, con) {
           status_message("No changes made - no matching or new students found.")
         }
         
-        # Refresh the data
-        # Note: You'll need to trigger a refresh of student_data() here
-        # This depends on your app's reactive structure
+        # CRITICAL: Trigger data refresh to sync with enrollment tab
+        refresh_trigger(Sys.time())
         
       }, error = function(e) {
         # Rollback on error
@@ -193,6 +210,8 @@ student_registry_tab_server <- function(id, student_data, con) {
         HTML("<div class='alert alert-warning'>
                <strong>WARNING:</strong> This will delete ALL existing data in the student registry 
                and replace it with data from the Excel file. This action cannot be undone.
+               <br><br>
+               <strong>Note:</strong> This will also affect existing enrollments if student IDs change.
              </div>
              <p>Are you sure you want to proceed?</p>"),
         footer = tagList(
@@ -216,6 +235,13 @@ student_registry_tab_server <- function(id, student_data, con) {
         # Begin transaction
         DBI::dbBegin(con)
         
+        # Store existing enrollments temporarily (in case we need to preserve them)
+        existing_enrollments <- DBI::dbGetQuery(con, "
+          SELECT e.*, s.student_name 
+          FROM remedial_enrollments e 
+          LEFT JOIN full_student_registry s ON e.student_id = s.student_id
+        ")
+        
         # Delete all existing data
         DBI::dbExecute(con, "DELETE FROM full_student_registry")
         
@@ -223,14 +249,41 @@ student_registry_tab_server <- function(id, student_data, con) {
         DBI::dbWriteTable(con, "full_student_registry", excel_data, 
                           append = TRUE, row.names = FALSE)
         
+        # Try to reconnect enrollments by student name
+        if (nrow(existing_enrollments) > 0) {
+          new_student_mapping <- DBI::dbGetQuery(con, "SELECT student_id, student_name FROM full_student_registry")
+          
+          # Update enrollment student_ids based on name matching
+          for (i in 1:nrow(existing_enrollments)) {
+            old_enrollment <- existing_enrollments[i, ]
+            new_student <- new_student_mapping[new_student_mapping$student_name == old_enrollment$student_name, ]
+            
+            if (nrow(new_student) == 1) {
+              # Update the enrollment with new student_id
+              DBI::dbExecute(con, "
+                UPDATE remedial_enrollments 
+                SET student_id = ? 
+                WHERE enrollment_id = ?",
+                             params = list(new_student$student_id, old_enrollment$enrollment_id))
+            } else if (nrow(new_student) == 0) {
+              # Student no longer exists, mark enrollment as inactive
+              DBI::dbExecute(con, "
+                UPDATE remedial_enrollments 
+                SET status = 'Inactive' 
+                WHERE enrollment_id = ?",
+                             params = list(old_enrollment$enrollment_id))
+            }
+          }
+        }
+        
         # Commit transaction
         DBI::dbCommit(con)
         
         status_message(paste("Hard update completed successfully.", nrow(excel_data), 
-                             "records inserted."))
+                             "records inserted. Existing enrollments have been preserved where possible."))
         
-        # Refresh the data
-        # Note: You'll need to trigger a refresh of student_data() here
+        # CRITICAL: Trigger data refresh to sync with enrollment tab
+        refresh_trigger(Sys.time())
         
       }, error = function(e) {
         # Rollback on error

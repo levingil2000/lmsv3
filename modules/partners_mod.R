@@ -1,5 +1,9 @@
-# Partners Module
+# Partners Module with AI Report Generation
 
+# Source the AI report generation functions
+source("modules/enrollment/enrollment_dashboard/ai_helpers.R")
+source("modules/enrollment/enrollment_dashboard/report_document_helpers.R")
+source("modules/partners/partners_helpers.R") 
 partners_ui <- function(id) {
   ns <- NS(id)
   
@@ -7,7 +11,7 @@ partners_ui <- function(id) {
     h1("Partners Management", style = "color: #2c3e50; margin-bottom: 30px;"),
     
     tabsetPanel(
-      # Partners Registry Tab
+      # Partners Registry Tab - CLEANED (removed report button)
       tabPanel("Partners Registry",
                br(),
                fluidRow(
@@ -84,6 +88,43 @@ partners_ui <- function(id) {
                         )
                  )
                )
+      ),
+      
+      # AI Report Analysis Tab
+      tabPanel("AI Report Analysis",
+               br(),
+               fluidRow(
+                 column(12,
+                        wellPanel(
+                          h4("AI-Generated Partnership Analysis", style = "color: #2c3e50;"),
+                          p("Generate comprehensive AI-powered reports analyzing partnership patterns, contribution trends, and strategic recommendations."),
+                          br(),
+                          actionButton(ns("generate_full_report"), "Generate Complete AI Analysis Report", 
+                                       class = "btn-success btn-lg", 
+                                       icon = icon("robot"),
+                                       style = "width: 100%; margin-bottom: 20px;"),
+                          
+                          conditionalPanel(
+                            condition = paste0("output['", ns("show_analysis"), "']"),
+                            wellPanel(
+                              h5("AI Analysis Preview:", style = "color: #34495e;"),
+                              div(id = ns("analysis_content"),
+                                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto;",
+                                  htmlOutput(ns("ai_analysis_preview"))
+                              )
+                            )
+                          ),
+                          
+                          conditionalPanel(
+                            condition = paste0("output['", ns("show_download"), "']"),
+                            br(),
+                            downloadButton(ns("download_report"), "Download Full Report (.docx)", 
+                                           class = "btn-primary btn-lg",
+                                           style = "width: 100%;")
+                          )
+                        )
+                 )
+               )
       )
     ),
     
@@ -109,9 +150,12 @@ partners_ui <- function(id) {
               actionButton(ns("cancel_partner"), "Cancel", class = "btn-default")
             )
     )
+    
+    # NOTE: Removed the report generation modal since we removed the duplicate button
   )
 }
 
+##SErver
 partners_server <- function(id, con) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -120,7 +164,9 @@ partners_server <- function(id, con) {
     values <- reactiveValues(
       partners_data = NULL,
       editing_id = NULL,
-      refresh = 0
+      refresh = 0,
+      report_result = NULL,
+      ai_analysis = NULL
     )
     
     # Load partners data
@@ -382,6 +428,105 @@ partners_server <- function(id, con) {
       } else {
         plotly_empty() %>%
           layout(title = "No data available")
+      }
+    })
+    
+    # =============================================================================
+    # AI REPORT GENERATION FUNCTIONALITY - CLEANED (Only one button now)
+    # =============================================================================
+    
+    # Handle full report generation (AI Report Analysis tab - the only one now)
+    observeEvent(input$generate_full_report, {
+      req(values$partners_data)
+      
+      if (nrow(values$partners_data) == 0) {
+        showNotification("No partner data available for analysis.", type = "warning")
+        return()
+      }
+      
+      withProgress(message = 'Generating AI Analysis...', value = 0, {
+        incProgress(0.2, detail = "Preparing partnership data...")
+        
+        tryCatch({
+          incProgress(0.3, detail = "Running AI analysis...")
+          
+          result <- handle_partners_report_generation(values$partners_data, "Project ARAL Management System")
+          
+          incProgress(0.8, detail = "Finalizing report...")
+          
+          if (result$success) {
+            values$report_result <- result
+            values$ai_analysis <- result$ai_analysis
+            
+            incProgress(1.0, detail = "Complete!")
+            
+            showNotification("AI analysis completed successfully!", type = "success")
+          } else {
+            showNotification(paste("Analysis failed:", result$message), type = "error")
+          }
+          
+        }, error = function(e) {
+          showNotification(paste("Error generating analysis:", e$message), type = "error")
+        })
+      })
+    })
+    
+    # Show analysis content conditionally
+    output$show_analysis <- reactive({
+      !is.null(values$ai_analysis)
+    })
+    outputOptions(output, "show_analysis", suspendWhenHidden = FALSE)
+    
+    # Show download button conditionally
+    output$show_download <- reactive({
+      !is.null(values$report_result) && values$report_result$success
+    })
+    outputOptions(output, "show_download", suspendWhenHidden = FALSE)
+    
+    # Render AI analysis preview
+    output$ai_analysis_preview <- renderText({
+      req(values$ai_analysis)
+      
+      preview_html <- paste0(
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Executive Summary</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", values$ai_analysis$executive_summary, "</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Key Insights</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", 
+        substr(values$ai_analysis$contribution_analysis, 1, 300), "...</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Strategic Recommendations</h5>",
+        "<p style='text-align: justify;'>", 
+        substr(values$ai_analysis$recommendations, 1, 400), "...</p>",
+        
+        "<div style='margin-top: 20px; padding: 10px; background-color: #e8f6f3; border-left: 4px solid #2ecc71;'>",
+        "<strong>📊 Full detailed analysis is available in the downloadable Word document.</strong>",
+        "</div>"
+      )
+      
+      preview_html
+    })
+    
+    # Download handler for the generated report
+    output$download_report <- downloadHandler(
+      filename = function() {
+        paste0("Partners_Analysis_Report_", format(Sys.Date(), "%Y%m%d"), ".docx")
+      },
+      content = function(file) {
+        req(values$report_result, values$report_result$success)
+        
+        # Copy the temporary file to the download location
+        file.copy(values$report_result$file_path, file)
+      },
+      contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    
+    # Clean up temporary files when session ends
+    session$onSessionEnded(function() {
+      if (!is.null(values$report_result) && values$report_result$success) {
+        if (file.exists(values$report_result$file_path)) {
+          file.remove(values$report_result$file_path)
+        }
       }
     })
   })

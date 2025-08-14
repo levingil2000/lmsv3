@@ -1,15 +1,3 @@
-# Teachers Module - Enhanced with Sentiment Analysis
-
-# Make sure to install required packages if not already installed:
-# install.packages(c("quanteda", "quanteda.textstats", "sentimentr"))
-
-library(quanteda)
-library(quanteda.textstats)
-library(sentimentr)
-library(dplyr)
-library(plotly)
-library(DT)
-
 teachers_ui <- function(id) {
   ns <- NS(id)
   
