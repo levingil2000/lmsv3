@@ -1,3 +1,5 @@
+
+
 sessions_ui <- function(id) {
   ns <- NS(id)
   
@@ -82,14 +84,18 @@ sessions_server <- function(id, con) {
     
     values <- reactiveValues(
       sessions_data = NULL,
+      teachers_data = NULL,  # Add separate reactive value for teachers
       filtered_data = NULL,
       editing_id = NULL,
       refresh = 0
     )
     
+    # Load both sessions and teachers data when refresh changes
     observe({
       values$refresh
       values$sessions_data <- get_table_data(con, "teacher_sessions")
+      # Refresh teachers data as well
+      values$teachers_data <- dbGetQuery(con, "SELECT DISTINCT name, teacherID, subject_handled FROM teacher_registry WHERE teacher_status = 'Active'")
     })
     
     # Refresh button
@@ -97,14 +103,19 @@ sessions_server <- function(id, con) {
       values$refresh <- values$refresh + 1
     })
     
+    # Update dropdowns when teachers data changes
     observe({
-      req(values$sessions_data)
+      req(values$teachers_data)
       
-      teachers <- dbGetQuery(con, "SELECT DISTINCT name, teacherID FROM teacher_registry WHERE teacher_status = 'Active'")
-      teacher_choices <- setNames(teachers$teacherID, teachers$name)
+      teacher_choices <- setNames(values$teachers_data$teacherID, values$teachers_data$name)
       
       updateSelectInput(session, "filter_teacher", choices = c("All" = "", teacher_choices))
       updateSelectInput(session, "teacher_id", choices = c("Select Teacher" = "", teacher_choices))
+    })
+    
+    # Update subject and competency filters when sessions data changes
+    observe({
+      req(values$sessions_data)
       
       subjects <- unique(values$sessions_data$subject[!is.na(values$sessions_data$subject)])
       updateSelectInput(session, "filter_subject", choices = c("All" = "", subjects))
@@ -115,10 +126,11 @@ sessions_server <- function(id, con) {
     
     # Auto-fill subject when teacher is selected
     observeEvent(input$teacher_id, {
+      req(values$teachers_data, input$teacher_id)
       if (input$teacher_id != "") {
-        subject_row <- dbGetQuery(con, sprintf("SELECT subject_handled FROM teacher_registry WHERE teacherID = '%s'", input$teacher_id))
-        if (nrow(subject_row) > 0) {
-          updateTextInput(session, "subject", value = subject_row$subject_handled[1])
+        teacher_row <- values$teachers_data[values$teachers_data$teacherID == input$teacher_id, ]
+        if (nrow(teacher_row) > 0) {
+          updateTextInput(session, "subject", value = teacher_row$subject_handled[1])
         }
       }
     })
@@ -143,11 +155,12 @@ sessions_server <- function(id, con) {
     })
     
     output$sessions_table <- DT::renderDataTable({
-      req(values$filtered_data)
+      req(values$filtered_data, values$teachers_data)
       
       display_data <- values$filtered_data
       if (nrow(display_data) > 0) {
-        teacher_names <- dbGetQuery(con, "SELECT teacherID, name FROM teacher_registry")
+        # Use the cached teachers data instead of querying again
+        teacher_names <- values$teachers_data[, c("teacherID", "name")]
         display_data <- merge(display_data, teacher_names, by.x = "teacher_id", by.y = "teacherID", all.x = TRUE)
         
         display_data <- display_data %>%

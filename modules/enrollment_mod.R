@@ -1,12 +1,14 @@
+# Add this line to your source statements at the top
 source("modules/enrollment/enrollment_database_helpers.R")
 source("modules/enrollment/enrollment_tab.R")
 source("modules/enrollment/manage_class_tab.R")
 source("modules/enrollment/overview_tab.R")
 source("modules/enrollment/student_registry_tab.R")
 source("modules/enrollment/enrollment_dashboard.R")
+source("modules/enrollment/program_evaluation_tab.R")  # <-- ADD THIS LINE
 
 # =============================================================================
-# MAIN UI MODULE
+# MAIN UI MODULE (UPDATED)
 # =============================================================================
 student_enrollment_ui <- function(id) {
   ns <- NS(id)
@@ -28,14 +30,16 @@ student_enrollment_ui <- function(id) {
     manage_classes_tab_ui(ns("management")),
     
     # View All Classes Tab
-    class_overview_tab_ui(ns("overview"))
+    class_overview_tab_ui(ns("overview")),
+    
+    # Program Evaluation Tab  <-- ADD THIS LINE
+    program_evaluation_tab_ui(ns("evaluation"))
   )
 }
 
 # =============================================================================
-# MAIN SERVER MODULE
+# MAIN SERVER MODULE (UPDATED)
 # =============================================================================
-
 student_enrollment_server <- function(id, con) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
@@ -78,5 +82,8 @@ student_enrollment_server <- function(id, con) {
     manage_classes_tab_server("management", con, refresh_trigger)
     
     class_overview_tab_server("overview", con, refresh_trigger)
+    
+    # Add the program evaluation tab server  <-- ADD THIS LINE
+    program_evaluation_tab_server("evaluation", con, refresh_trigger)
   })
 }

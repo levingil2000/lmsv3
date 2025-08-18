@@ -31,18 +31,7 @@ get_student_registry <- function(con) {
       Total_score_per,
       RMA_before_math_proficiency,
       before_reading_proficiency,
-      testq1math,
-      testq2math,
-      testq3math,
-      testq4math,
-      testq1sci,
-      testq2sci,
-      testq3sci,
-      testq4sci,
-      testq1eng,
-      testq2eng,
-      testq3eng,
-      testq4eng
+      reading_accuracy
     FROM full_student_registry
     ORDER BY student_name
   "

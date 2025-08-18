@@ -61,7 +61,7 @@ student_registry_tab_server <- function(id, student_data, con, refresh_trigger) 
       display_data <- student_data() %>%
         select(student_id, student_name, grade_level, section, 
                Total_score_per, RMA_before_math_proficiency, 
-               before_reading_proficiency, starts_with("testq"))
+               before_reading_proficiency, reading_accuracy )
       
       DT::datatable(
         display_data,

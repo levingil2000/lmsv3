@@ -1,3 +1,10 @@
+# Enhanced Teachers Module with AI Report Generation
+
+# Source the AI report generation functions
+source("modules/enrollment/enrollment_dashboard/ai_helpers.R")
+source("modules/enrollment/enrollment_dashboard/report_document_helpers.R")
+source("modules/teacher/teacher_report_helpers.R") 
+
 teachers_ui <- function(id) {
   ns <- NS(id)
   
@@ -104,6 +111,43 @@ teachers_ui <- function(id) {
                         )
                  )
                )
+      ),
+      
+      # AI Report Analysis Tab
+      tabPanel("AI Report Analysis",
+               br(),
+               fluidRow(
+                 column(12,
+                        wellPanel(
+                          h4("AI-Generated Teacher Performance Analysis", style = "color: #2c3e50;"),
+                          p("Generate comprehensive AI-powered reports analyzing teacher performance, workload distribution, competency coverage, and strategic recommendations for faculty development."),
+                          br(),
+                          actionButton(ns("generate_full_report"), "Generate Complete AI Analysis Report", 
+                                       class = "btn-success btn-lg", 
+                                       icon = icon("robot"),
+                                       style = "width: 100%; margin-bottom: 20px;"),
+                          
+                          conditionalPanel(
+                            condition = paste0("output['", ns("show_analysis"), "']"),
+                            wellPanel(
+                              h5("AI Analysis Preview:", style = "color: #34495e;"),
+                              div(id = ns("analysis_content"),
+                                  style = "background-color: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 400px; overflow-y: auto;",
+                                  htmlOutput(ns("ai_analysis_preview"))
+                              )
+                            )
+                          ),
+                          
+                          conditionalPanel(
+                            condition = paste0("output['", ns("show_download"), "']"),
+                            br(),
+                            downloadButton(ns("download_report"), "Download Full Report (.docx)", 
+                                           class = "btn-primary btn-lg",
+                                           style = "width: 100%;")
+                          )
+                        )
+                 )
+               )
       )
     ),
     
@@ -139,7 +183,9 @@ teachers_server <- function(id, con) {
     values <- reactiveValues(
       teachers_data = NULL,
       editing_id = NULL,
-      refresh = 0
+      refresh = 0,
+      report_result = NULL,
+      ai_analysis = NULL
     )
     
     # Helper function to create sentiment meter
@@ -593,6 +639,125 @@ teachers_server <- function(id, con) {
       DT::datatable(performance_data,
                     options = list(pageLength = 10, scrollX = TRUE),
                     rownames = FALSE)
+    })
+    
+    # =============================================================================
+    # AI REPORT GENERATION FUNCTIONALITY
+    # =============================================================================
+    
+    # Handle full report generation (AI Report Analysis tab)
+    observeEvent(input$generate_full_report, {
+      req(values$teachers_data)
+      
+      if (nrow(values$teachers_data) == 0) {
+        showNotification("No teacher data available for analysis.", type = "warning")
+        return()
+      }
+      
+      withProgress(message = 'Generating AI Analysis...', value = 0, {
+        incProgress(0.1, detail = "Preparing teacher data...")
+        
+        tryCatch({
+          # Get sessions data for comprehensive analysis
+          sessions_data <- tryCatch({
+            dbGetQuery(con, "SELECT * FROM teacher_sessions")
+          }, error = function(e) {
+            message("Sessions data not available: ", e$message)
+            NULL
+          })
+          
+          incProgress(0.3, detail = "Running AI analysis...")
+          
+          result <- handle_teachers_report_generation(
+            teachers_data = values$teachers_data, 
+            sessions_data = sessions_data,
+            app_title = "Project ARAL Management System"
+          )
+          
+          incProgress(0.8, detail = "Finalizing report...")
+          
+          if (result$success) {
+            values$report_result <- result
+            values$ai_analysis <- result$ai_analysis
+            
+            incProgress(1.0, detail = "Complete!")
+            
+            showNotification("AI analysis completed successfully!", type = "success")
+          } else {
+            showNotification(paste("Analysis failed:", result$message), type = "error")
+          }
+          
+        }, error = function(e) {
+          showNotification(paste("Error generating analysis:", e$message), type = "error")
+        })
+      })
+    })
+    
+    # Show analysis content conditionally
+    output$show_analysis <- reactive({
+      !is.null(values$ai_analysis)
+    })
+    outputOptions(output, "show_analysis", suspendWhenHidden = FALSE)
+    
+    # Show download button conditionally
+    output$show_download <- reactive({
+      !is.null(values$report_result) && values$report_result$success
+    })
+    outputOptions(output, "show_download", suspendWhenHidden = FALSE)
+    
+    # Render AI analysis preview
+    output$ai_analysis_preview <- renderText({
+      req(values$ai_analysis)
+      
+      preview_html <- paste0(
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Executive Summary</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", values$ai_analysis$executive_summary, "</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Performance Analysis</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", 
+        substr(values$ai_analysis$performance_analysis, 1, 300), "...</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Workload Distribution</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", 
+        substr(values$ai_analysis$workload_distribution, 1, 300), "...</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Learning Competency Coverage</h5>",
+        "<p style='text-align: justify; margin-bottom: 20px;'>", 
+        substr(values$ai_analysis$competency_analysis, 1, 300), "...</p>",
+        
+        "<h5 style='color: #2c3e50; margin-bottom: 15px;'>Strategic Recommendations</h5>",
+        "<p style='text-align: justify;'>", 
+        substr(values$ai_analysis$recommendations, 1, 400), "...</p>",
+        
+        "<div style='margin-top: 20px; padding: 10px; background-color: #e8f6f3; border-left: 4px solid #2ecc71;'>",
+        "<strong>👨‍🏫 Full detailed analysis including engagement insights, faculty directory, and comprehensive recommendations is available in the downloadable Word document.</strong>",
+        "</div>"
+      )
+      
+      preview_html
+    })
+    
+    # Download handler for the generated report
+    output$download_report <- downloadHandler(
+      filename = function() {
+        paste0("Teachers_Performance_Analysis_Report_", format(Sys.Date(), "%Y%m%d"), ".docx")
+      },
+      content = function(file) {
+        req(values$report_result, values$report_result$success)
+        
+        # Copy the temporary file to the download location
+        file.copy(values$report_result$file_path, file)
+      },
+      contentType = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    
+    # Clean up temporary files when session ends
+    session$onSessionEnded(function() {
+      if (!is.null(values$report_result) && values$report_result$success) {
+        if (file.exists(values$report_result$file_path)) {
+          file.remove(values$report_result$file_path)
+        }
+      }
     })
   })
 }

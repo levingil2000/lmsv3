@@ -163,7 +163,9 @@ dashboard_server <- function(id, con) {
     
     # Summary Statistics Outputs
     output$total_students <- renderText({
-      dashboard_data()$total_students
+      # Fetch total students from remedial_enrollments table
+      result <- dbGetQuery(con, "SELECT COUNT(enrollment_id) as count FROM remedial_enrollments")
+      result$count
     })
     
     output$total_teachers <- renderText({
@@ -175,7 +177,9 @@ dashboard_server <- function(id, con) {
     })
     
     output$total_graduates <- renderText({
-      dashboard_data()$total_graduates
+      # Fetch graduates from remedial_enrollments table where status = 'passed'
+      result <- dbGetQuery(con, "SELECT COUNT(*) as count FROM remedial_enrollments WHERE status = 'passed'")
+      result$count
     })
     
     output$total_amount <- renderText({

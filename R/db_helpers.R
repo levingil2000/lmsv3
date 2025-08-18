@@ -140,37 +140,17 @@ create_tables <- function(con) {
     LRN TEXT,
     student_name TEXT,
     grade_level INTEGER,
-    RMA_Content_Number_Expression_per REAL,
-    RMA_Content_Data_per REAL,
-    RMA_Content_Coordinates_per REAL,
-    RMA_Content_Triangles_per REAL,
-    RMA_Content_Variables_per REAL,
-    RMA_Content_Equations_and_Graphs_per REAL,
-    RMA_Content_Circles_per REAL,
-    RMA_Cognitive_Knowing_per REAL,
-    RMA_Cognitive_Interpreting_per REAL,
-    RMA_Cognitive_Applying_per REAL,
-    RMA_Cognitive_Reasoning_per REAL,
     Total_score_per REAL,
     RMA_before_math_proficiency TEXT,
     sex TEXT,
     section TEXT,
-    
-    -- placeholders for future data
     before_reading_proficiency TEXT,
-    testq1math INTEGER,
-    testq2math INTEGER,
-    testq3math INTEGER,
-    testq4math INTEGER,
-    testq1sci INTEGER,
-    testq2sci INTEGER,
-    testq3sci INTEGER,
-    testq4sci INTEGER,
-    testq1eng INTEGER,
-    testq2eng INTEGER,
-    testq3eng INTEGER,
-    testq4eng INTEGER,
-    notes_remarks TEXT
+    reading_accuracy REAL,
+    notes_remarks TEXT,
+    Total_score_per_end REAL,
+    RMA_before_math_proficiency_end TEXT,
+    after_reading_proficiency TEXT,
+    reading_accuracy_after
   );
   ")
   

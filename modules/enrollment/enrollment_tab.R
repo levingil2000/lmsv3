@@ -117,8 +117,7 @@ enroll_students_tab_server <- function(id, con, student_data, refresh_trigger) {
       
       display_data <- filtered_students() %>%
         select(student_id, student_name, grade_level, section, Total_score_per,
-               RMA_before_math_proficiency, before_reading_proficiency,
-               starts_with("testq"))
+               RMA_before_math_proficiency, before_reading_proficiency, reading_accuracy)
       
       DT::datatable(
         display_data,
