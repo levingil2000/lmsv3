@@ -1,73 +1,137 @@
 # timeline_ui.R
 
-library(shiny)
-library(DT)
-library(dplyr)
-library(RSQLite)
+
 
 timeline_ui <- function(id) {
   ns <- NS(id)
   
   fluidPage(
-    titlePanel("Event Timeline Management"),
+    h1("Event Timeline Management", style = "color: #2c3e50; margin-bottom: 30px;"),
     
     tabsetPanel(
       # Events Management Tab
       tabPanel("Events Management",
                br(),
                fluidRow(
-                 # Add/Edit Form
+                 column(12,
+                        actionButton(ns("add_event"), "Add New Event", 
+                                     class = "btn-primary", style = "margin-bottom: 15px;")
+                 )
+               ),
+               
+               fluidRow(
+                 column(12,
+                        withSpinner(DT::dataTableOutput(ns("events_table")))
+                 )
+               )
+      ),
+      
+      # Events Analytics Tab
+      tabPanel("Events Analytics",
+               br(),
+               
+               # Filters
+               fluidRow(
                  column(4,
+                        selectInput(ns("filter_status"), "Event Status:",
+                                    choices = NULL, selected = NULL)
+                 ),
+                 column(4,
+                        dateRangeInput(ns("filter_date_range"), "Date Range:",
+                                       start = Sys.Date() - 30, 
+                                       end = Sys.Date() + 30)
+                 ),
+                 column(4,
+                        br(),
+                        downloadButton(ns("download_csv"), "Download CSV", 
+                                       class = "btn-success", style = "margin-top: 5px;")
+                 )
+               ),
+               
+               # First row of charts
+               fluidRow(
+                 column(6,
                         wellPanel(
-                          h4("Add/Edit Event"),
-                          
-                          # Hidden field for edit mode
-                          textInput(ns("selected_rowid"), "", value = "", placeholder = ""),
-                          
-                          textInput(ns("event_id"), "Event ID", placeholder = "e.g., EVT001"),
-                          dateInput(ns("event_date"), "Event Date", value = Sys.Date()),
-                          textAreaInput(ns("event_description"), "Description", rows = 3),
-                          textInput(ns("event_persons_involved"), "Persons Involved"),
-                          selectInput(ns("event_status"), "Status",
-                                      choices = c("Pending", "In Progress", "Completed", "Cancelled")),
-                          textAreaInput(ns("event_remarks"), "Remarks", rows = 2),
-                          
-                          br(),
-                          actionButton(ns("add_event"), "Add Event", class = "btn-primary"),
-                          actionButton(ns("update_event"), "Update Event", class = "btn-warning"),
-                          actionButton(ns("clear_form"), "Clear", class = "btn-secondary")
+                          h4("Events by Status Distribution", style = "color: #2c3e50;"),
+                          withSpinner(plotlyOutput(ns("status_distribution_chart")))
                         )
                  ),
-                 
-                 # Events Table
-                 column(8,
+                 column(6,
                         wellPanel(
-                          div(style = "display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;",
-                              h4("Events List"),
-                              downloadButton(ns("download_csv"), "Download CSV", class = "btn-success")
-                          ),
-                          
-                          DT::dataTableOutput(ns("events_table")),
-                          
+                          h4("Events Timeline Overview", style = "color: #2c3e50;"),
+                          withSpinner(plotlyOutput(ns("timeline_overview_chart")))
+                        )
+                 )
+               ),
+               
+               # Events Analysis Section
+               fluidRow(
+                 column(6,
+                        wellPanel(
+                          h4("Event Status Summary", style = "color: #2c3e50;"),
                           br(),
-                          actionButton(ns("delete_selected"), "Delete Selected", class = "btn-danger")
+                          withSpinner(DT::dataTableOutput(ns("status_summary_table")))
+                        )
+                 ),
+                 column(6,
+                        wellPanel(
+                          h4("Monthly Event Trends", style = "color: #2c3e50;"),
+                          br(),
+                          withSpinner(plotlyOutput(ns("monthly_trends_chart")))
+                        )
+                 )
+               ),
+               
+               br(),
+               
+               fluidRow(
+                 column(12,
+                        wellPanel(
+                          h4("Detailed Events Summary", style = "color: #2c3e50;"),
+                          withSpinner(DT::dataTableOutput(ns("events_summary_table")))
                         )
                  )
                )
       ),
       
-      # Timeline Tab
-      tabPanel("Timeline",
+      # Timeline Visualization Tab
+      tabPanel("Timeline Visualization",
                br(),
                fluidRow(
                  column(12,
                         wellPanel(
-                          h4("Events Timeline", style = "text-align: center;"),
-                          htmlOutput(ns("timeline"))
+                          h4("Interactive Events Timeline", style = "color: #2c3e50; text-align: center;"),
+                          p("Visual representation of all events in chronological order", 
+                            style = "text-align: center; color: #7f8c8d;"),
+                          br(),
+                          withSpinner(htmlOutput(ns("timeline_visual")))
                         )
                  )
                )
       )
+    ),
+    
+    # Add/Edit Event Modal
+    bsModal("event_modal", "Event Information", ns("add_event"), size = "large",
+            fluidRow(
+              column(6,
+                     textInput(ns("event_id"), "Event ID:", "", placeholder = "e.g., EVT001"),
+                     dateInput(ns("event_date"), "Event Date:", value = Sys.Date()),
+                     textAreaInput(ns("event_description"), "Description:", "", rows = 3)
+              ),
+              column(6,
+                     textInput(ns("event_persons_involved"), "Persons Involved:", ""),
+                     selectInput(ns("event_status"), "Status:",
+                                 choices = c("Pending", "In Progress", "Completed", "Cancelled"),
+                                 selected = "Pending"),
+                     textAreaInput(ns("event_remarks"), "Remarks:", "", rows = 3)
+              )
+            ),
+            
+            footer = tagList(
+              actionButton(ns("save_event"), "Save", class = "btn-primary"),
+              actionButton(ns("cancel_event"), "Cancel", class = "btn-default")
+            )
     )
   )
 }
@@ -75,6 +139,13 @@ timeline_ui <- function(id) {
 timeline_server <- function(id, con) {
   moduleServer(id, function(input, output, session) {
     ns <- session$ns
+    
+    # Reactive values
+    values <- reactiveValues(
+      events_data = NULL,
+      editing_id = NULL,
+      refresh = 0
+    )
     
     # Initialize database table
     observe({
@@ -96,27 +167,31 @@ timeline_server <- function(id, con) {
       })
     })
     
-    # Reactive to load events
-    events_data <- reactive({
-      input$add_event
-      input$update_event
-      input$delete_selected
-      
+    # Load events data
+    observe({
+      values$refresh  # Dependency for refresh
       tryCatch({
-        dbGetQuery(con, "SELECT * FROM events ORDER BY event_date DESC")
+        values$events_data <- dbGetQuery(con, "SELECT * FROM events ORDER BY event_date DESC")
       }, error = function(e) {
         showNotification(paste("Error loading events:", e$message), type = "error")
-        data.frame()
+        values$events_data <- data.frame()
       })
+    })
+    
+    # Update filter choices
+    observe({
+      if (!is.null(values$events_data) && nrow(values$events_data) > 0) {
+        statuses <- sort(unique(values$events_data$event_status))
+        updateSelectInput(session, "filter_status", 
+                          choices = c("All" = "", statuses))
+      }
     })
     
     # Events table
     output$events_table <- DT::renderDataTable({
-      data <- events_data()
-      if(nrow(data) == 0) return(data.frame())
+      req(values$events_data)
       
-      # Display table without internal ID
-      display_data <- data %>%
+      display_data <- values$events_data %>%
         select(event_id, event_date, event_description, event_persons_involved, 
                event_status, event_remarks) %>%
         rename(
@@ -129,142 +204,289 @@ timeline_server <- function(id, con) {
         )
       
       DT::datatable(display_data,
-                    selection = 'single',
-                    options = list(
-                      pageLength = 10,
-                      scrollX = TRUE
-                    ),
-                    rownames = FALSE
-      )
-    }, server = FALSE)
-    
-    # Add event
-    observeEvent(input$add_event, {
-      req(input$event_id, input$event_date, input$event_description, input$event_status)
-      
-      tryCatch({
-        dbExecute(con, "
-          INSERT INTO events (event_id, event_date, event_description, 
-                            event_persons_involved, event_status, event_remarks)
-          VALUES (?, ?, ?, ?, ?, ?)
-        ", params = list(
-          input$event_id,
-          as.character(input$event_date),
-          input$event_description,
-          input$event_persons_involved,
-          input$event_status,
-          input$event_remarks
-        ))
-        
-        showNotification("Event added successfully!", type = "success")
-        clear_form()
-        
-      }, error = function(e) {
-        showNotification(paste("Error adding event:", e$message), type = "error")
-      })
+                    options = list(pageLength = 10, scrollX = TRUE),
+                    rownames = FALSE,
+                    selection = "single") %>%
+        DT::formatStyle(columns = "Status",
+                        backgroundColor = DT::styleEqual(
+                          c("Pending", "In Progress", "Completed", "Cancelled"), 
+                          c("#fff3cd", "#cce5ff", "#d4edda", "#f8d7da")
+                        ))
     })
     
-    # Load selected row for editing
+    # Handle row selection for editing
     observeEvent(input$events_table_rows_selected, {
-      if(length(input$events_table_rows_selected) > 0) {
-        data <- events_data()
+      if (length(input$events_table_rows_selected) > 0) {
         selected_row <- input$events_table_rows_selected
-        event <- data[selected_row, ]
+        event_data <- values$events_data[selected_row, ]
         
-        updateTextInput(session, "selected_rowid", value = as.character(event$id))
-        updateTextInput(session, "event_id", value = event$event_id)
-        updateDateInput(session, "event_date", value = as.Date(event$event_date))
-        updateTextAreaInput(session, "event_description", value = event$event_description)
-        updateTextInput(session, "event_persons_involved", value = event$event_persons_involved)
-        updateSelectInput(session, "event_status", selected = event$event_status)
-        updateTextAreaInput(session, "event_remarks", value = event$event_remarks)
+        values$editing_id <- event_data$id
+        
+        # Populate modal fields
+        updateTextInput(session, "event_id", value = event_data$event_id)
+        updateDateInput(session, "event_date", value = as.Date(event_data$event_date))
+        updateTextAreaInput(session, "event_description", value = event_data$event_description)
+        updateTextInput(session, "event_persons_involved", value = event_data$event_persons_involved)
+        updateSelectInput(session, "event_status", selected = event_data$event_status)
+        updateTextAreaInput(session, "event_remarks", value = event_data$event_remarks)
+        
+        toggleModal(session, "event_modal", toggle = "open")
       }
     })
     
-    # Update event
-    observeEvent(input$update_event, {
-      req(input$selected_rowid, input$event_id, input$event_date, 
-          input$event_description, input$event_status)
+    # Handle add new event
+    observeEvent(input$add_event, {
+      values$editing_id <- NULL
       
-      tryCatch({
-        dbExecute(con, "
-          UPDATE events 
-          SET event_id = ?, event_date = ?, event_description = ?, 
-              event_persons_involved = ?, event_status = ?, event_remarks = ?
-          WHERE id = ?
-        ", params = list(
-          input$event_id,
-          as.character(input$event_date),
-          input$event_description,
-          input$event_persons_involved,
-          input$event_status,
-          input$event_remarks,
-          as.integer(input$selected_rowid)
-        ))
-        
-        showNotification("Event updated successfully!", type = "success")
-        clear_form()
-        
-      }, error = function(e) {
-        showNotification(paste("Error updating event:", e$message), type = "error")
-      })
-    })
-    
-    # Delete selected event
-    observeEvent(input$delete_selected, {
-      if(length(input$events_table_rows_selected) > 0) {
-        data <- events_data()
-        selected_row <- input$events_table_rows_selected
-        event_to_delete <- data[selected_row, ]
-        
-        showModal(modalDialog(
-          title = "Confirm Delete",
-          paste("Are you sure you want to delete event:", event_to_delete$event_id, "?"),
-          footer = tagList(
-            modalButton("Cancel"),
-            actionButton(ns("confirm_delete"), "Delete", class = "btn-danger")
-          )
-        ))
-      } else {
-        showNotification("Please select an event to delete", type = "warning")
-      }
-    })
-    
-    # Confirm delete
-    observeEvent(input$confirm_delete, {
-      if(length(input$events_table_rows_selected) > 0) {
-        data <- events_data()
-        selected_row <- input$events_table_rows_selected
-        event_to_delete <- data[selected_row, ]
-        
-        tryCatch({
-          dbExecute(con, "DELETE FROM events WHERE id = ?", 
-                    params = list(event_to_delete$id))
-          
-          showNotification("Event deleted successfully!", type = "success")
-          clear_form()
-          removeModal()
-          
-        }, error = function(e) {
-          showNotification(paste("Error deleting event:", e$message), type = "error")
-        })
-      }
-    })
-    
-    # Clear form function
-    clear_form <- function() {
-      updateTextInput(session, "selected_rowid", value = "")
+      # Clear modal fields
       updateTextInput(session, "event_id", value = "")
       updateDateInput(session, "event_date", value = Sys.Date())
       updateTextAreaInput(session, "event_description", value = "")
       updateTextInput(session, "event_persons_involved", value = "")
       updateSelectInput(session, "event_status", selected = "Pending")
       updateTextAreaInput(session, "event_remarks", value = "")
+    })
+    
+    # Handle save event
+    observeEvent(input$save_event, {
+      req(input$event_id, input$event_date, input$event_description, input$event_status)
+      
+      tryCatch({
+        if (is.null(values$editing_id)) {
+          # Insert new event
+          dbExecute(con, "
+            INSERT INTO events (event_id, event_date, event_description, 
+                              event_persons_involved, event_status, event_remarks)
+            VALUES (?, ?, ?, ?, ?, ?)
+          ", params = list(
+            input$event_id,
+            as.character(input$event_date),
+            input$event_description,
+            input$event_persons_involved,
+            input$event_status,
+            input$event_remarks
+          ))
+          
+          showNotification("Event added successfully!", type = "message")
+        } else {
+          # Update existing event
+          dbExecute(con, "
+            UPDATE events 
+            SET event_id = ?, event_date = ?, event_description = ?, 
+                event_persons_involved = ?, event_status = ?, event_remarks = ?
+            WHERE id = ?
+          ", params = list(
+            input$event_id,
+            as.character(input$event_date),
+            input$event_description,
+            input$event_persons_involved,
+            input$event_status,
+            input$event_remarks,
+            as.integer(values$editing_id)
+          ))
+          
+          showNotification("Event updated successfully!", type = "message")
+        }
+        
+        values$refresh <- values$refresh + 1
+        toggleModal(session, "event_modal", toggle = "close")
+        
+      }, error = function(e) {
+        showNotification(paste("Error saving event:", e$message), type = "error")
+      })
+    })
+    
+    # Handle cancel
+    observeEvent(input$cancel_event, {
+      toggleModal(session, "event_modal", toggle = "close")
+    })
+    
+    # Helper function to build filter conditions for analytics
+    build_analytics_filter <- function() {
+      conditions <- c()
+      
+      if (!is.null(input$filter_status) && input$filter_status != "") {
+        conditions <- c(conditions, paste0("event_status = '", input$filter_status, "'"))
+      }
+      
+      if (!is.null(input$filter_date_range)) {
+        start_date <- input$filter_date_range[1]
+        end_date <- input$filter_date_range[2]
+        conditions <- c(conditions, 
+                        paste0("event_date >= '", start_date, "' AND event_date <= '", end_date, "'"))
+      }
+      
+      if (length(conditions) > 0) {
+        return(paste0("WHERE ", paste(conditions, collapse = " AND ")))
+      } else {
+        return("")
+      }
     }
     
-    # Clear form button
-    observeEvent(input$clear_form, {
-      clear_form()
+    # Status Distribution Chart
+    output$status_distribution_chart <- renderPlotly({
+      req(values$events_data)
+      
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT event_status, COUNT(*) as count
+        FROM events
+        ", filter_conditions, "
+        GROUP BY event_status
+        ORDER BY count DESC
+      ")
+      
+      status_data <- dbGetQuery(con, query)
+      
+      if (nrow(status_data) > 0) {
+        colors <- c("Pending" = "#f39c12", "In Progress" = "#3498db", 
+                    "Completed" = "#27ae60", "Cancelled" = "#e74c3c")
+        
+        p <- plot_ly(status_data, 
+                     labels = ~event_status, 
+                     values = ~count,
+                     type = 'pie',
+                     marker = list(colors = colors[status_data$event_status]),
+                     hovertemplate = '<b>%{label}</b><br>Count: %{value}<br>Percentage: %{percent}<extra></extra>') %>%
+          layout(title = "",
+                 showlegend = TRUE)
+        p
+      } else {
+        plotly_empty() %>%
+          layout(title = "No data available")
+      }
+    })
+    
+    # Timeline Overview Chart
+    output$timeline_overview_chart <- renderPlotly({
+      req(values$events_data)
+      
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT event_date, event_status, COUNT(*) as count
+        FROM events
+        ", filter_conditions, "
+        GROUP BY event_date, event_status
+        ORDER BY event_date
+      ")
+      
+      timeline_data <- dbGetQuery(con, query)
+      
+      if (nrow(timeline_data) > 0) {
+        colors <- c("Pending" = "#f39c12", "In Progress" = "#3498db", 
+                    "Completed" = "#27ae60", "Cancelled" = "#e74c3c")
+        
+        p <- plot_ly(timeline_data, x = ~as.Date(event_date), y = ~count, 
+                     color = ~event_status, colors = colors,
+                     type = 'scatter', mode = 'lines+markers',
+                     hovertemplate = '<b>%{fullData.name}</b><br>Date: %{x}<br>Count: %{y}<extra></extra>') %>%
+          layout(title = "",
+                 xaxis = list(title = "Date"),
+                 yaxis = list(title = "Number of Events"),
+                 hovermode = 'closest')
+        p
+      } else {
+        plotly_empty() %>%
+          layout(title = "No data available")
+      }
+    })
+    
+    # Status Summary Table
+    output$status_summary_table <- DT::renderDataTable({
+      req(values$events_data)
+      
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT event_status as 'Status',
+               COUNT(*) as 'Total Events',
+               ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM events ", 
+                      if(filter_conditions != "") filter_conditions else "", "), 2) as 'Percentage'
+        FROM events
+        ", filter_conditions, "
+        GROUP BY event_status
+        ORDER BY `Total Events` DESC
+      ")
+      
+      status_summary <- dbGetQuery(con, query)
+      
+      DT::datatable(status_summary,
+                    options = list(pageLength = 10, dom = 't'),
+                    rownames = FALSE) %>%
+        DT::formatStyle(columns = "Status",
+                        backgroundColor = DT::styleEqual(
+                          c("Pending", "In Progress", "Completed", "Cancelled"), 
+                          c("#fff3cd", "#cce5ff", "#d4edda", "#f8d7da")
+                        ))
+    })
+    
+    # Monthly Trends Chart
+    output$monthly_trends_chart <- renderPlotly({
+      req(values$events_data)
+      
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT strftime('%Y-%m', event_date) as month,
+               COUNT(*) as event_count
+        FROM events
+        ", filter_conditions, "
+        GROUP BY strftime('%Y-%m', event_date)
+        ORDER BY month
+      ")
+      
+      monthly_data <- dbGetQuery(con, query)
+      
+      if (nrow(monthly_data) > 0) {
+        p <- plot_ly(monthly_data, 
+                     x = ~month, 
+                     y = ~event_count,
+                     type = 'bar',
+                     marker = list(color = '#9b59b6'),
+                     hovertemplate = '<b>%{x}</b><br>Events: %{y}<extra></extra>') %>%
+          layout(title = "",
+                 xaxis = list(title = "Month"),
+                 yaxis = list(title = "Number of Events"))
+        p
+      } else {
+        plotly_empty() %>%
+          layout(title = "No data available")
+      }
+    })
+    
+    # Events Summary Table
+    output$events_summary_table <- DT::renderDataTable({
+      req(values$events_data)
+      
+      filter_conditions <- build_analytics_filter()
+      
+      query <- paste0("
+        SELECT event_id as 'Event ID',
+               event_date as 'Date',
+               event_description as 'Description',
+               event_persons_involved as 'Persons Involved',
+               event_status as 'Status',
+               CASE 
+                 WHEN event_remarks IS NULL OR event_remarks = '' THEN 'No remarks'
+                 ELSE event_remarks
+               END as 'Remarks'
+        FROM events
+        ", filter_conditions, "
+        ORDER BY event_date DESC
+      ")
+      
+      summary_data <- dbGetQuery(con, query)
+      
+      DT::datatable(summary_data,
+                    options = list(pageLength = 10, scrollX = TRUE),
+                    rownames = FALSE) %>%
+        DT::formatStyle(columns = "Status",
+                        backgroundColor = DT::styleEqual(
+                          c("Pending", "In Progress", "Completed", "Cancelled"), 
+                          c("#fff3cd", "#cce5ff", "#d4edda", "#f8d7da")
+                        ))
     })
     
     # Download CSV
@@ -273,67 +495,87 @@ timeline_server <- function(id, con) {
         paste("events_", Sys.Date(), ".csv", sep = "")
       },
       content = function(file) {
-        data <- events_data()
-        if(nrow(data) > 0) {
-          export_data <- data %>%
-            select(-id, -created_at) %>%
-            rename(
-              "Event ID" = event_id,
-              "Date" = event_date,
-              "Description" = event_description,
-              "Persons Involved" = event_persons_involved,
-              "Status" = event_status,
-              "Remarks" = event_remarks
-            )
+        req(values$events_data)
+        
+        filter_conditions <- build_analytics_filter()
+        
+        query <- paste0("
+          SELECT event_id, event_date, event_description, event_persons_involved, 
+                 event_status, event_remarks
+          FROM events
+          ", filter_conditions, "
+          ORDER BY event_date DESC
+        ")
+        
+        export_data <- dbGetQuery(con, query)
+        
+        if(nrow(export_data) > 0) {
+          names(export_data) <- c("Event ID", "Date", "Description", 
+                                  "Persons Involved", "Status", "Remarks")
           write.csv(export_data, file, row.names = FALSE)
         }
       }
     )
     
-    # Timeline visualization as simple text output
-    output$timeline <- renderText({
-      data <- events_data()
+    # Timeline visualization as enhanced HTML
+    output$timeline_visual <- renderText({
+      req(values$events_data)
       
-      if(nrow(data) == 0) {
-        return("No events to display.")
+      if(nrow(values$events_data) == 0) {
+        return("<div style='text-align: center; color: #7f8c8d; padding: 50px;'>
+                <h3>No events to display</h3>
+                <p>Add some events to see them in the timeline visualization.</p>
+                </div>")
       }
       
       # Sort by date chronologically (oldest first)
-      timeline_data <- data %>%
+      timeline_data <- values$events_data %>%
         arrange(event_date)
       
-      # Create text timeline
-      timeline_text <- ""
+      # Create enhanced HTML timeline
+      timeline_html <- "<div style='position: relative; padding: 20px;'>"
       
       for(i in 1:nrow(timeline_data)) {
         event <- timeline_data[i, ]
         
-        timeline_text <- paste0(timeline_text,
-                                "=====================================\n",
-                                "EVENT ID: ", event$event_id, "\n",
-                                "DATE: ", format(as.Date(event$event_date), "%B %d, %Y"), "\n",
-                                "STATUS: ", event$event_status, "\n",
-                                "DESCRIPTION: ", event$event_description, "\n"
+        # Determine status color
+        status_color <- switch(event$event_status,
+                               "Pending" = "#f39c12",
+                               "In Progress" = "#3498db",
+                               "Completed" = "#27ae60",
+                               "Cancelled" = "#e74c3c",
+                               "#95a5a6")  # Default color
+        
+        timeline_html <- paste0(timeline_html,
+                                "<div style='margin-bottom: 30px; border-left: 4px solid ", status_color, "; padding-left: 20px; background-color: #f8f9fa; border-radius: 0 8px 8px 0; box-shadow: 0 2px 4px rgba(0,0,0,0.1);'>",
+                                "<div style='background-color: white; padding: 15px; border-radius: 5px;'>",
+                                "<h5 style='color: #2c3e50; margin-bottom: 10px; display: flex; align-items: center;'>",
+                                "<span style='background-color: ", status_color, "; color: white; padding: 3px 8px; border-radius: 15px; font-size: 12px; margin-right: 10px;'>", event$event_status, "</span>",
+                                event$event_id, "</h5>",
+                                "<p style='color: #34495e; margin-bottom: 8px;'><strong>📅 Date:</strong> ", format(as.Date(event$event_date), "%B %d, %Y"), "</p>",
+                                "<p style='color: #34495e; margin-bottom: 8px;'><strong>📝 Description:</strong> ", event$event_description, "</p>"
         )
         
         # Add persons involved if not empty
         if(!is.na(event$event_persons_involved) && event$event_persons_involved != "") {
-          timeline_text <- paste0(timeline_text,
-                                  "PERSONS INVOLVED: ", event$event_persons_involved, "\n"
+          timeline_html <- paste0(timeline_html,
+                                  "<p style='color: #34495e; margin-bottom: 8px;'><strong>👥 Persons Involved:</strong> ", event$event_persons_involved, "</p>"
           )
         }
         
         # Add remarks if not empty
         if(!is.na(event$event_remarks) && event$event_remarks != "") {
-          timeline_text <- paste0(timeline_text,
-                                  "REMARKS: ", event$event_remarks, "\n"
+          timeline_html <- paste0(timeline_html,
+                                  "<p style='color: #34495e; margin-bottom: 0;'><strong>💭 Remarks:</strong> ", event$event_remarks, "</p>"
           )
         }
         
-        timeline_text <- paste0(timeline_text, "\n")
+        timeline_html <- paste0(timeline_html, "</div></div>")
       }
       
-      return(timeline_text)
+      timeline_html <- paste0(timeline_html, "</div>")
+      
+      return(timeline_html)
     })
   })
 }
